@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import confetti from 'canvas-confetti';
+import { ShieldCheck } from 'lucide-react';
 
 import Header from './components/Header';
 import Lobby from './components/Lobby';
@@ -42,6 +43,34 @@ export default function App() {
     }
     localStorage.setItem('quickdrop_theme', theme);
   }, [theme]);
+
+  const [isPrivacyMode, setIsPrivacyMode] = useState(() => {
+    const saved = localStorage.getItem('quickdrop_privacy_mode');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const [isPanicLocked, setIsPanicLocked] = useState(false);
+
+  const togglePrivacyMode = () => {
+    setIsPrivacyMode((prev) => {
+      const next = !prev;
+      localStorage.setItem('quickdrop_privacy_mode', String(next));
+      return next;
+    });
+  };
+
+  // Hotkeys: [Esc] toggles Panic Cover, [Alt+P] toggles Anti-Peep Shield
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsPanicLocked((prev) => !prev);
+      } else if (e.altKey && (e.key === 'p' || e.key === 'P')) {
+        togglePrivacyMode();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
@@ -302,6 +331,8 @@ export default function App() {
         toggleTheme={toggleTheme}
         deviceInfo={deviceInfo}
         isConnected={isConnected}
+        isPrivacyMode={isPrivacyMode}
+        togglePrivacyMode={togglePrivacyMode}
       />
 
       {/* Main Content Area */}
@@ -327,9 +358,31 @@ export default function App() {
             syncedText={syncedText}
             onTextChange={handleTextChange}
             isDirectP2P={isDirectP2P}
+            isPrivacyMode={isPrivacyMode}
           />
         )}
       </main>
+
+      {/* Emergency Panic Screen Cover (Press Esc to lock/unlock) */}
+      {isPanicLocked && (
+        <div 
+          onClick={() => setIsPanicLocked(false)}
+          className="fixed inset-0 z-[100] bg-zinc-950/95 backdrop-blur-2xl flex flex-col items-center justify-center cursor-pointer select-none animate-in fade-in duration-150"
+        >
+          <div className="text-center space-y-3 p-8 rounded-2xl border border-zinc-800/80 bg-zinc-900/60 max-w-sm">
+            <div className="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center mx-auto text-emerald-400">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-zinc-200">Anti-Peep Privacy Shield</p>
+              <p className="text-xs text-zinc-500 mt-1">Screen temporarily obscured</p>
+            </div>
+            <p className="text-[11px] font-mono text-zinc-400 pt-2 border-t border-zinc-800">
+              Press <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700">ESC</kbd> or click anywhere to resume
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* QR Code Modal */}
       <QRCodeModal

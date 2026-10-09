@@ -2,7 +2,8 @@ import React, { useState, useRef } from 'react';
 import { 
   QrCode, Copy, Check, LogOut, Laptop, Smartphone, UploadCloud, 
   File, Folder, Image as ImageIcon, FileText, Download, Archive, 
-  Trash2, X, ExternalLink, RefreshCw, Send, CheckCircle2, AlertCircle
+  Trash2, X, ExternalLink, RefreshCw, Send, CheckCircle2, AlertCircle,
+  Eye, EyeOff, ShieldCheck
 } from 'lucide-react';
 import { formatBytes, formatSpeed, formatTimeRemaining } from '../utils/device';
 import { triggerDownload } from '../utils/zip';
@@ -22,12 +23,14 @@ export default function RoomView({
   syncedText,
   onTextChange,
   isDirectP2P,
+  isPrivacyMode = false,
 }) {
   const [activeTab, setActiveTab] = useState('files'); // 'files' | 'images' | 'text'
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedImagePreview, setSelectedImagePreview] = useState(null);
+  const [codeRevealed, setCodeRevealed] = useState(false);
 
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
@@ -123,17 +126,50 @@ export default function RoomView({
   const receivedImages = receivedFiles.filter((f) => f.mimeType?.startsWith('image/'));
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 py-2 z-10 animate-in fade-in duration-300">
+    <div className={`w-full max-w-4xl mx-auto px-4 py-2 z-10 animate-in fade-in duration-300 ${isPrivacyMode ? 'transition-all duration-300' : ''}`}>
       
       {/* Top Room Bar */}
       <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xl mb-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
-            <span className="text-[10px] text-zinc-400 font-mono tracking-wider uppercase">Active Room</span>
+            <span className="text-[10px] text-zinc-400 font-mono tracking-wider uppercase flex items-center gap-1.5">
+              <span>Active Room</span>
+              {isPrivacyMode && (
+                <span className="text-[9px] text-emerald-500 font-semibold uppercase px-1.5 py-0.2 rounded bg-emerald-500/10">
+                  Protected
+                </span>
+              )}
+            </span>
             <div className="flex items-center gap-2">
-              <span className="text-2xl font-black font-mono tracking-widest text-zinc-900 dark:text-zinc-50">
-                {displayCode}
-              </span>
+              {/* Room Code with Anti-Peeping Mask */}
+              <div 
+                className="relative flex items-center group cursor-pointer"
+                onMouseEnter={() => isPrivacyMode && setCodeRevealed(true)}
+                onMouseLeave={() => isPrivacyMode && setCodeRevealed(false)}
+                onClick={() => setCodeRevealed(!codeRevealed)}
+                title={isPrivacyMode ? "Hover or click to reveal code" : ""}
+              >
+                <span className={`text-2xl font-black font-mono tracking-widest text-zinc-900 dark:text-zinc-50 select-none transition-all duration-200 ${
+                  isPrivacyMode && !codeRevealed ? 'filter blur-[7px] opacity-60' : ''
+                }`}>
+                  {isPrivacyMode && !codeRevealed ? '••••••' : displayCode}
+                </span>
+
+                {isPrivacyMode && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCodeRevealed(!codeRevealed);
+                    }}
+                    className="ml-2 p-1 rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                    title={codeRevealed ? "Hide code" : "Reveal code"}
+                  >
+                    {codeRevealed ? <EyeOff className="w-3.5 h-3.5 text-emerald-500" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
+
               <button
                 onClick={handleCopyRoomCode}
                 title="Copy Room Code"
@@ -395,8 +431,13 @@ export default function RoomView({
           {/* Received Files List */}
           <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                Received Items ({receivedFiles.length})
+              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                <span>Received Items ({receivedFiles.length})</span>
+                {isPrivacyMode && (
+                  <span className="text-[10px] text-zinc-400 font-normal">
+                    (Hover to reveal items)
+                  </span>
+                )}
               </h4>
               {receivedFiles.length > 1 && (
                 <button
@@ -426,7 +467,9 @@ export default function RoomView({
                           src={file.previewUrl}
                           alt={file.name}
                           onClick={() => setSelectedImagePreview(file.previewUrl)}
-                          className="w-10 h-10 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity border border-zinc-200 dark:border-zinc-700"
+                          className={`w-10 h-10 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-all border border-zinc-200 dark:border-zinc-700 ${
+                            isPrivacyMode ? 'filter blur-[10px] group-hover:blur-none duration-200' : ''
+                          }`}
                         />
                       ) : (
                         <div className="w-10 h-10 rounded-lg bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-zinc-500 shrink-0">
@@ -435,7 +478,9 @@ export default function RoomView({
                       )}
 
                       <div className="overflow-hidden">
-                        <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                        <p className={`text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate transition-all duration-200 ${
+                          isPrivacyMode ? 'filter blur-[3px] group-hover:blur-none select-none' : ''
+                        }`}>
                           {file.name}
                         </p>
                         <p className="text-[11px] text-zinc-400 font-mono">
@@ -463,7 +508,14 @@ export default function RoomView({
       {activeTab === 'images' && (
         <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-lg space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Shared Images</h4>
+            <h4 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
+              <span>Shared Images</span>
+              {isPrivacyMode && (
+                <span className="text-[10px] text-emerald-500 font-normal">
+                  (Anti-Peep: Hover to view photo)
+                </span>
+              )}
+            </h4>
             <span className="text-xs text-zinc-400">{receivedImages.length} images</span>
           </div>
 
@@ -481,7 +533,9 @@ export default function RoomView({
                   <img
                     src={img.previewUrl}
                     alt={img.name}
-                    className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-200 cursor-pointer"
+                    className={`w-full h-full object-cover transition-all group-hover:scale-105 duration-300 cursor-pointer ${
+                      isPrivacyMode ? 'filter blur-[16px] group-hover:blur-none' : ''
+                    }`}
                     onClick={() => setSelectedImagePreview(img.previewUrl)}
                   />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -512,7 +566,14 @@ export default function RoomView({
         <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-lg space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h4 className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Real-time QuickSync Text</h4>
+              <h4 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
+                <span>Real-time QuickSync Text</span>
+                {isPrivacyMode && (
+                  <span className="text-[10px] text-emerald-500 font-normal">
+                    (Anti-Peep: Hover over box to read)
+                  </span>
+                )}
+              </h4>
               <p className="text-xs text-zinc-400">Anything you paste or type updates instantly across all connected devices.</p>
             </div>
             <div className="flex items-center gap-2">
@@ -526,13 +587,22 @@ export default function RoomView({
             </div>
           </div>
 
-          <textarea
-            value={syncedText}
-            onChange={(e) => onTextChange(e.target.value)}
-            placeholder="Type or paste text, links, code snippets or notes here..."
-            rows={10}
-            className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700/80 bg-zinc-50 dark:bg-zinc-950 p-4 font-mono text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-y"
-          />
+          <div className="relative group">
+            <textarea
+              value={syncedText}
+              onChange={(e) => onTextChange(e.target.value)}
+              placeholder="Type or paste text, links, code snippets or notes here..."
+              rows={10}
+              className={`w-full rounded-xl border border-zinc-200 dark:border-zinc-700/80 bg-zinc-50 dark:bg-zinc-950 p-4 font-mono text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-y transition-all duration-300 ${
+                isPrivacyMode ? 'filter blur-[5px] group-hover:blur-none focus:blur-none select-none' : ''
+              }`}
+            />
+            {isPrivacyMode && (
+              <div className="pointer-events-none absolute top-3 right-3 px-2 py-1 rounded bg-zinc-900/80 text-[10px] text-zinc-300 backdrop-blur-md border border-zinc-700 group-hover:opacity-0 transition-opacity">
+                Hover to read
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
             <span>{syncedText.length} characters • {syncedText.trim() ? syncedText.trim().split(/\s+/).length : 0} words</span>
