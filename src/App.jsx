@@ -317,13 +317,7 @@ export default function App() {
     : `http://${networkInfo.primaryIp || 'localhost'}:${networkInfo.port || 3000}/?room=${roomCode || ''}`;
 
   return (
-    <div className="min-h-screen flex flex-col justify-between relative overflow-hidden bg-zinc-50 dark:bg-zinc-950 transition-colors duration-500 font-sans">
-      
-      {/* Ambient background pulsing orbs (inspired by QuickSync mohitlab.vercel.app) */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] bg-blue-500/10 dark:bg-blue-600/15 rounded-full blur-3xl animate-glow-1" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-violet-500/10 dark:bg-indigo-600/15 rounded-full blur-3xl animate-glow-2" />
-      </div>
+    <div className="min-h-screen flex flex-col justify-between relative bg-zinc-50 dark:bg-[#0a0a0c] text-zinc-900 dark:text-zinc-100 transition-colors duration-300 font-sans">
 
       {/* Header */}
       <Header
