@@ -61,8 +61,10 @@ function startTunnel() {
   });
 }
 
-// Start tunnel in background
-startTunnel();
+// Only start local tunnel if explicitly requested and NOT on Render/production
+if (!process.env.RENDER && process.env.NODE_ENV !== 'production' && process.env.ENABLE_LOCAL_TUNNEL) {
+  startTunnel();
+}
 
 // Helper: Get local Wi-Fi / Ethernet IPv4 addresses
 function getLocalIpAddresses() {

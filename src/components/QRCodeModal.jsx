@@ -8,7 +8,8 @@ export default function QRCodeModal({ isOpen, onClose, roomCode, joinUrl, tunnel
 
   if (!isOpen) return null;
 
-  const currentUrl = selectedMode === 'internet' && tunnelUrl ? `${tunnelUrl}/?room=${roomCode}` : localWifiUrl;
+  const isCloud = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  const currentUrl = isCloud ? joinUrl : (selectedMode === 'internet' && tunnelUrl ? `${tunnelUrl}/?room=${roomCode}` : localWifiUrl);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(currentUrl);

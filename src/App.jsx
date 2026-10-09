@@ -274,13 +274,18 @@ export default function App() {
   };
 
   // Formulate mobile QR join URLs:
-  // 1. Live HTTPS Tunnel (works anywhere, mobile data, hotel Wi-Fi)
-  // 2. Direct LAN Wi-Fi URL (maximum transfer speed on local router)
-  const joinUrl = tunnelUrl 
-    ? `${tunnelUrl}/?room=${roomCode || ''}`
-    : `http://${networkInfo.primaryIp || 'localhost'}:${networkInfo.port || 3000}/?room=${roomCode || ''}`;
+  // When accessed via a deployed domain (like https://tarang-huvy.onrender.com), use window.location.origin!
+  const isCloudDeployment = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
 
-  const localWifiUrl = `http://${networkInfo.primaryIp || 'localhost'}:${networkInfo.port || 3000}/?room=${roomCode || ''}`;
+  const joinUrl = isCloudDeployment
+    ? `${window.location.origin}/?room=${roomCode || ''}`
+    : (tunnelUrl 
+        ? `${tunnelUrl}/?room=${roomCode || ''}`
+        : `http://${networkInfo.primaryIp || 'localhost'}:${networkInfo.port || 3000}/?room=${roomCode || ''}`);
+
+  const localWifiUrl = isCloudDeployment
+    ? `${window.location.origin}/?room=${roomCode || ''}`
+    : `http://${networkInfo.primaryIp || 'localhost'}:${networkInfo.port || 3000}/?room=${roomCode || ''}`;
 
   return (
     <div className="min-h-screen flex flex-col justify-between relative overflow-hidden bg-zinc-50 dark:bg-zinc-950 transition-colors duration-500 font-sans">
