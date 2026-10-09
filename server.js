@@ -6,8 +6,6 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { spawn } from 'child_process';
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -26,46 +24,6 @@ const io = new Server(server, {
   maxHttpBufferSize: 50 * 1024 * 1024, // 50MB buffer for fallback relay chunks
 });
 
-// Live Tunnel state
-let activeTunnelUrl = null;
-
-function startTunnel() {
-  console.log('[Tunnel] Starting keep-alive SSH tunnel to port 5000...');
-  const tunnelProcess = spawn('ssh', [
-    '-o', 'ServerAliveInterval=20',
-    '-o', 'ServerAliveCountMax=5',
-    '-o', 'StrictHostKeyChecking=no',
-    '-R', '80:127.0.0.1:5000',
-    'nokey@localhost.run',
-  ]);
-
-  tunnelProcess.stdout.on('data', (data) => {
-    const text = data.toString();
-    const match = text.match(/https:\/\/[a-z0-9]+\.lhr\.life/i);
-    if (match) {
-      activeTunnelUrl = match[0];
-      console.log(`[Tunnel] ✅ Live Mobile URL: ${activeTunnelUrl}`);
-      io.emit('tunnel-updated', { tunnelUrl: activeTunnelUrl });
-    }
-  });
-
-  tunnelProcess.stderr.on('data', (data) => {
-    // console.warn('[Tunnel]', data.toString());
-  });
-
-  tunnelProcess.on('close', (code) => {
-    console.log(`[Tunnel] Process exited with code ${code}. Reconnecting in 3 seconds...`);
-    activeTunnelUrl = null;
-    io.emit('tunnel-updated', { tunnelUrl: null });
-    setTimeout(startTunnel, 3000);
-  });
-}
-
-// Only start local tunnel if explicitly requested and NOT on Render/production
-if (!process.env.RENDER && process.env.NODE_ENV !== 'production' && process.env.ENABLE_LOCAL_TUNNEL) {
-  startTunnel();
-}
-
 // Helper: Get local Wi-Fi / Ethernet IPv4 addresses
 function getLocalIpAddresses() {
   const interfaces = os.networkInterfaces();
@@ -75,7 +33,6 @@ function getLocalIpAddresses() {
     for (const net of interfaces[name]) {
       // Skip internal (127.0.0.1) and non-ipv4
       if (net.family === 'IPv4' && !net.internal) {
-        // Prefer Wi-Fi or standard Ethernet
         addresses.push({
           interface: name,
           ip: net.address,
@@ -86,7 +43,7 @@ function getLocalIpAddresses() {
   return addresses;
 }
 
-// Endpoint to provide local network info and live mobile tunnel URL
+// Endpoint to provide local network info
 app.get('/api/info', (req, res) => {
   const ips = getLocalIpAddresses();
   const primaryIp = ips.find(i => /wi-fi|wlan|wireless/i.test(i.interface))?.ip 
@@ -97,8 +54,7 @@ app.get('/api/info', (req, res) => {
   res.json({
     primaryIp,
     interfaces: ips,
-    port: process.env.PORT || 3000,
-    tunnelUrl: activeTunnelUrl,
+    port: process.env.PORT || 5000,
   });
 });
 

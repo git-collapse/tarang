@@ -1,18 +1,14 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { X, Copy, Check, Smartphone, Wifi, Globe } from 'lucide-react';
+import { X, Copy, Check, Smartphone, Globe } from 'lucide-react';
 
-export default function QRCodeModal({ isOpen, onClose, roomCode, joinUrl, tunnelUrl, localWifiUrl }) {
-  const [selectedMode, setSelectedMode] = useState(tunnelUrl ? 'internet' : 'wifi');
+export default function QRCodeModal({ isOpen, onClose, roomCode, joinUrl }) {
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  const isCloud = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-  const currentUrl = isCloud ? joinUrl : (selectedMode === 'internet' && tunnelUrl ? `${tunnelUrl}/?room=${roomCode}` : localWifiUrl);
-
   const handleCopy = () => {
-    navigator.clipboard.writeText(currentUrl);
+    navigator.clipboard.writeText(joinUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -20,76 +16,67 @@ export default function QRCodeModal({ isOpen, onClose, roomCode, joinUrl, tunnel
   const displayCode = roomCode && roomCode.length === 6 ? `${roomCode.slice(0, 3)}-${roomCode.slice(3)}` : roomCode;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-xs rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 shadow-xl flex flex-col items-center text-center space-y-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 shadow-2xl flex flex-col items-center text-center space-y-4">
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+          className="absolute top-4 right-4 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
         >
-          <X className="w-4 h-4" />
+          <X className="w-5 h-5" />
         </button>
 
-        <div className="space-y-1 pt-1">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Scan to Pair</h3>
-          <p className="text-xs text-zinc-500 font-mono">
-            Room: {displayCode}
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 text-xs font-semibold">
+          <Smartphone className="w-3.5 h-3.5" />
+          <span>Direct Pairing</span>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">Scan to Connect</h3>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+            Scan with your phone's camera to join room <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">{displayCode}</span>
           </p>
         </div>
 
-        {/* Mode Selector Tabs (only in local tunnel mode) */}
-        {!isCloud && tunnelUrl && (
-          <div className="flex w-full p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-[11px] font-medium">
-            <button
-              onClick={() => setSelectedMode('internet')}
-              className={`flex-1 py-1 rounded-md transition-all ${
-                selectedMode === 'internet'
-                  ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm'
-                  : 'text-zinc-500'
-              }`}
-            >
-              Internet
-            </button>
-            <button
-              onClick={() => setSelectedMode('wifi')}
-              className={`flex-1 py-1 rounded-md transition-all ${
-                selectedMode === 'wifi'
-                  ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-sm'
-                  : 'text-zinc-500'
-              }`}
-            >
-              Wi-Fi
-            </button>
-          </div>
-        )}
-
-        {/* QR Code Container */}
-        <div className="p-3 bg-white rounded-xl border border-zinc-200">
+        {/* Direct QR Code */}
+        <div className="p-4 bg-white rounded-2xl shadow-inner border border-zinc-200">
           <QRCodeSVG
-            value={currentUrl}
-            size={180}
-            level="M"
+            value={joinUrl}
+            size={200}
+            level="H"
             includeMargin={true}
           />
         </div>
 
-        {/* Copy Link Button */}
-        <button
-          onClick={handleCopy}
-          className="w-full py-2 rounded-xl text-xs font-medium bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 transition-colors flex items-center justify-center gap-1.5"
-        >
-          {copied ? (
-            <>
-              <Check className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Copied Link</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-3.5 h-3.5 text-zinc-400" />
-              <span>Copy Link</span>
-            </>
-          )}
-        </button>
+        {/* Room Code & Copy URL */}
+        <div className="w-full bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700/60 rounded-xl p-3 flex items-center justify-between">
+          <div className="text-left overflow-hidden pr-2">
+            <span className="text-[10px] text-zinc-400 uppercase font-mono block">Room Code</span>
+            <span className="font-mono font-bold text-lg text-zinc-900 dark:text-zinc-100 tracking-wider">
+              {displayCode}
+            </span>
+          </div>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-200/80 hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200 transition-colors shrink-0"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy Link</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        <p className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate max-w-full font-mono">
+          {joinUrl}
+        </p>
       </div>
     </div>
   );

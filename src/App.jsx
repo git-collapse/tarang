@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import confetti from 'canvas-confetti';
-import { ShieldCheck } from 'lucide-react';
 
 import Header from './components/Header';
 import Lobby from './components/Lobby';
@@ -44,41 +43,11 @@ export default function App() {
     localStorage.setItem('quickdrop_theme', theme);
   }, [theme]);
 
-  const [isPrivacyMode, setIsPrivacyMode] = useState(() => {
-    const saved = localStorage.getItem('quickdrop_privacy_mode');
-    return saved !== null ? saved === 'true' : true;
-  });
-
-  const [isPanicLocked, setIsPanicLocked] = useState(false);
-
-  const togglePrivacyMode = () => {
-    setIsPrivacyMode((prev) => {
-      const next = !prev;
-      localStorage.setItem('quickdrop_privacy_mode', String(next));
-      return next;
-    });
-  };
-
-  // Hotkeys: [Esc] toggles Panic Cover, [Alt+P] toggles Anti-Peep Shield
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setIsPanicLocked((prev) => !prev);
-      } else if (e.altKey && (e.key === 'p' || e.key === 'P')) {
-        togglePrivacyMode();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  const [tunnelUrl, setTunnelUrl] = useState(null);
-
-  // Fetch LAN IP info and tunnel URL for mobile QR pairing
+  // Fetch network info
   useEffect(() => {
     const info = getDeviceInfo();
     setDeviceInfo(info);
@@ -88,9 +57,6 @@ export default function App() {
       .then((data) => {
         if (data?.primaryIp) {
           setNetworkInfo(data);
-        }
-        if (data?.tunnelUrl) {
-          setTunnelUrl(data.tunnelUrl);
         }
       })
       .catch(() => {});
@@ -110,11 +76,6 @@ export default function App() {
 
     newSocket.on('disconnect', () => {
       setIsConnected(false);
-    });
-
-    newSocket.on('tunnel-updated', ({ tunnelUrl: newTunnel }) => {
-      console.log('[Socket] Tunnel URL updated:', newTunnel);
-      setTunnelUrl(newTunnel);
     });
 
     setSocket(newSocket);
@@ -302,22 +263,22 @@ export default function App() {
     triggerDownload(zipBlob, `QuickDrop-${roomCode || 'bundle'}.zip`);
   };
 
-  // Formulate mobile QR join URLs:
-  // When accessed via a deployed domain (like https://tarang-huvy.onrender.com), use window.location.origin!
-  const isCloudDeployment = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  // Direct Join URL (clean, transparent, no proxy/tunnel masking)
+  const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const baseOrigin = isLocal && networkInfo.primaryIp
+    ? `http://${networkInfo.primaryIp}:${window.location.port || 5000}`
+    : window.location.origin;
 
-  const joinUrl = isCloudDeployment
-    ? `${window.location.origin}/?room=${roomCode || ''}`
-    : (tunnelUrl 
-        ? `${tunnelUrl}/?room=${roomCode || ''}`
-        : `http://${networkInfo.primaryIp || 'localhost'}:${networkInfo.port || 3000}/?room=${roomCode || ''}`);
-
-  const localWifiUrl = isCloudDeployment
-    ? `${window.location.origin}/?room=${roomCode || ''}`
-    : `http://${networkInfo.primaryIp || 'localhost'}:${networkInfo.port || 3000}/?room=${roomCode || ''}`;
+  const joinUrl = `${baseOrigin}/?room=${roomCode || ''}`;
 
   return (
-    <div className="min-h-screen flex flex-col justify-between relative bg-zinc-50 dark:bg-[#0a0a0c] text-zinc-900 dark:text-zinc-100 transition-colors duration-300 font-sans">
+    <div className="min-h-screen flex flex-col justify-between relative overflow-hidden bg-zinc-50 dark:bg-zinc-950 transition-colors duration-500 font-sans">
+      
+      {/* Ambient background pulsing orbs (inspired by QuickSync mohitlab.vercel.app) */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] bg-blue-500/10 dark:bg-blue-600/15 rounded-full blur-3xl animate-glow-1" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-violet-500/10 dark:bg-indigo-600/15 rounded-full blur-3xl animate-glow-2" />
+      </div>
 
       {/* Header */}
       <Header
@@ -325,8 +286,6 @@ export default function App() {
         toggleTheme={toggleTheme}
         deviceInfo={deviceInfo}
         isConnected={isConnected}
-        isPrivacyMode={isPrivacyMode}
-        togglePrivacyMode={togglePrivacyMode}
       />
 
       {/* Main Content Area */}
@@ -352,31 +311,9 @@ export default function App() {
             syncedText={syncedText}
             onTextChange={handleTextChange}
             isDirectP2P={isDirectP2P}
-            isPrivacyMode={isPrivacyMode}
           />
         )}
       </main>
-
-      {/* Emergency Panic Screen Cover (Press Esc to lock/unlock) */}
-      {isPanicLocked && (
-        <div 
-          onClick={() => setIsPanicLocked(false)}
-          className="fixed inset-0 z-[100] bg-zinc-950/95 backdrop-blur-2xl flex flex-col items-center justify-center cursor-pointer select-none animate-in fade-in duration-150"
-        >
-          <div className="text-center space-y-3 p-8 rounded-2xl border border-zinc-800/80 bg-zinc-900/60 max-w-sm">
-            <div className="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center mx-auto text-emerald-400">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-zinc-200">Anti-Peep Privacy Shield</p>
-              <p className="text-xs text-zinc-500 mt-1">Screen temporarily obscured</p>
-            </div>
-            <p className="text-[11px] font-mono text-zinc-400 pt-2 border-t border-zinc-800">
-              Press <kbd className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 font-semibold border border-zinc-700">ESC</kbd> or click anywhere to resume
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* QR Code Modal */}
       <QRCodeModal
@@ -384,8 +321,6 @@ export default function App() {
         onClose={() => setIsQRModalOpen(false)}
         roomCode={roomCode}
         joinUrl={joinUrl}
-        tunnelUrl={tunnelUrl}
-        localWifiUrl={localWifiUrl}
       />
 
       {/* Footer */}
