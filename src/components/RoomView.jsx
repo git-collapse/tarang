@@ -34,7 +34,7 @@ export default function RoomView({
   
   // Message input state
   const [messageInput, setMessageInput] = useState('');
-  const [textMode, setTextMode] = useState('chat'); // 'chat' | 'scratchpad'
+  const [textMode, setTextMode] = useState('scratchpad'); // default to 'scratchpad' (Live Synced Notepad)
   const messagesEndRef = useRef(null);
 
   const fileInputRef = useRef(null);
@@ -334,16 +334,6 @@ export default function RoomView({
           <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800/60 pb-3">
             <div className="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl text-xs">
               <button
-                onClick={() => setTextMode('chat')}
-                className={`px-3 py-1 rounded-lg font-medium transition-all ${
-                  textMode === 'chat'
-                    ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                }`}
-              >
-                Instant Messages
-              </button>
-              <button
                 onClick={() => setTextMode('scratchpad')}
                 className={`px-3 py-1 rounded-lg font-medium transition-all ${
                   textMode === 'scratchpad'
@@ -352,6 +342,16 @@ export default function RoomView({
                 }`}
               >
                 Live Synced Notepad
+              </button>
+              <button
+                onClick={() => setTextMode('chat')}
+                className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                  textMode === 'chat'
+                    ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                }`}
+              >
+                Instant Messages
               </button>
             </div>
 
