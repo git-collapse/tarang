@@ -189,6 +189,11 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Keep-alive heartbeat ping from client
+  socket.on('ping-server', () => {
+    socket.emit('pong-server', { timestamp: Date.now() });
+  });
+
   // Handle Disconnect
   const leaveRoom = () => {
     if (currentRoom && rooms.has(currentRoom)) {

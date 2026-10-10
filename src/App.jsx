@@ -63,25 +63,64 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Initialize Socket.io
+  // Track roomCode in ref for reconnect handler
+  const roomCodeRef = useRef(roomCode);
+  useEffect(() => {
+    roomCodeRef.current = roomCode;
+  }, [roomCode]);
+
+  // Track deviceInfo in ref
+  const deviceInfoRef = useRef(deviceInfo);
+  useEffect(() => {
+    deviceInfoRef.current = deviceInfo;
+  }, [deviceInfo]);
+
+  // Initialize Socket.io with robust auto-reconnection and room re-joining
   useEffect(() => {
     const newSocket = io({
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
 
     newSocket.on('connect', () => {
       setIsConnected(true);
       console.log('Connected to signaling server:', newSocket.id);
+
+      // If user was already in a room and reconnected, automatically re-join the room!
+      if (roomCodeRef.current) {
+        console.log('Auto-rejoining room after reconnect:', roomCodeRef.current);
+        newSocket.emit('join-room', {
+          roomId: roomCodeRef.current,
+          deviceMeta: deviceInfoRef.current,
+        });
+      }
     });
 
-    newSocket.on('disconnect', () => {
+    newSocket.on('disconnect', (reason) => {
+      console.warn('Socket disconnected:', reason);
       setIsConnected(false);
+      // If server disconnected, socket.io will automatically try to reconnect
+    });
+
+    newSocket.io.on('reconnect', (attempt) => {
+      console.log(`Socket reconnected after ${attempt} attempts`);
     });
 
     setSocket(newSocket);
 
+    // Keep-alive heartbeat ping every 25 seconds to prevent browser/proxy timeouts
+    const pingInterval = setInterval(() => {
+      if (newSocket.connected) {
+        newSocket.emit('ping-server');
+      }
+    }, 25000);
+
     return () => {
+      clearInterval(pingInterval);
       newSocket.disconnect();
     };
   }, []);
