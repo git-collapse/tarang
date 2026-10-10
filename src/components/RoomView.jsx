@@ -462,7 +462,7 @@ export default function RoomView({
             </div>
           )}
 
-          {/* Sub-mode B: Live Collaborative Scratchpad (QuickSync Notepad) */}
+          {/* Sub-mode B: Live Collaborative Scratchpad (Tarang Notepad) */}
           {textMode === 'scratchpad' && (
             <div className="space-y-3">
               <textarea

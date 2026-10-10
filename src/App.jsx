@@ -14,7 +14,7 @@ import { playSuccessChime, playPeerJoinChime } from './utils/sound';
 
 export default function App() {
   const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('quickdrop_theme') || 'dark';
+    return localStorage.getItem('tarang_theme') || 'dark';
   });
 
   const [deviceInfo, setDeviceInfo] = useState(null);
@@ -41,7 +41,7 @@ export default function App() {
     } else {
       root.classList.remove('dark');
     }
-    localStorage.setItem('quickdrop_theme', theme);
+    localStorage.setItem('tarang_theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {

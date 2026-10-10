@@ -26,10 +26,10 @@ export function getDeviceInfo() {
   const defaultName = `${os} (${browser})`;
 
   // Save or retrieve local peer name
-  let savedName = localStorage.getItem('quickdrop_device_name');
+  let savedName = localStorage.getItem('tarang_device_name');
   if (!savedName) {
     savedName = defaultName;
-    localStorage.setItem('quickdrop_device_name', savedName);
+    localStorage.setItem('tarang_device_name', savedName);
   }
 
   return {
