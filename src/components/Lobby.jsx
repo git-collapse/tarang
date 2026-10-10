@@ -36,9 +36,8 @@ export default function Lobby({ onJoinRoom, onGenerateCode }) {
         
         {/* Header */}
         <div className="text-center space-y-2 pt-2">
-          <h2 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center justify-center gap-2">
-            <span>Tarang</span>
-            <span className="text-sm font-normal text-zinc-400 dark:text-zinc-500">तरंग</span>
+          <h2 className="text-4xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-50">
+            तरंग
           </h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-xs mx-auto leading-relaxed">
             Waves of data between devices. Instant, peer-to-peer, zero cloud storage.

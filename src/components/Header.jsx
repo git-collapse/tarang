@@ -7,10 +7,7 @@ export default function Header({ theme, toggleTheme, deviceInfo, isConnected }) 
       <div className="flex items-center gap-2.5">
         <div className="flex items-center gap-2">
           <Waves className="w-5 h-5 text-zinc-900 dark:text-zinc-100" />
-          <span className="font-bold text-lg tracking-tight text-zinc-900 dark:text-zinc-50">
-            Tarang
-          </span>
-          <span className="text-[11px] font-normal text-zinc-400 dark:text-zinc-500">
+          <span className="font-bold text-xl tracking-tight text-zinc-900 dark:text-zinc-50">
             तरंग
           </span>
           <span className="flex h-2 w-2 relative ml-0.5">
