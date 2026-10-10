@@ -16,17 +16,33 @@ export default function Lobby({ onJoinRoom, onGenerateCode }) {
     onJoinRoom(cleaned);
   };
 
+  const extractRoomCode = (rawText) => {
+    if (!rawText) return '';
+    const match = rawText.match(/room=([A-Za-z0-9-]+)/i);
+    const candidate = match ? match[1] : rawText.trim();
+    return candidate.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+  };
+
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      if (text) {
-        const match = text.match(/room=([A-Za-z0-9-]+)/i);
-        const code = match ? match[1] : text.trim();
-        setInputCode(code.toUpperCase());
+      const code = extractRoomCode(text);
+      if (code) {
+        setInputCode(code);
         setError('');
       }
     } catch {
       // Clipboard permission
+    }
+  };
+
+  const handleInputPaste = (e) => {
+    e.preventDefault();
+    const text = e.clipboardData?.getData('text') || '';
+    const code = extractRoomCode(text);
+    if (code) {
+      setInputCode(code);
+      setError('');
     }
   };
 
@@ -69,29 +85,27 @@ export default function Lobby({ onJoinRoom, onGenerateCode }) {
 
           {/* Join Code Input Form */}
           <form onSubmit={handleSubmit} className="space-y-2">
-            <div className="flex gap-2 relative">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  maxLength={12}
-                  value={inputCode}
-                  onChange={(e) => {
-                    setInputCode(e.target.value.toUpperCase());
-                    if (error) setError('');
-                  }}
-                  placeholder="Enter 6-digit code"
-                  className="w-full h-13 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/60 px-4 text-center font-mono text-xl font-bold tracking-widest text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600 transition-all uppercase"
-                />
-                {!inputCode && (
-                  <button
-                    type="button"
-                    onClick={handlePaste}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 px-2 py-1 rounded text-xs font-medium text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
-                  >
-                    Paste
-                  </button>
-                )}
-              </div>
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                maxLength={6}
+                value={inputCode}
+                onPaste={handleInputPaste}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+                  setInputCode(cleaned);
+                  if (error) setError('');
+                }}
+                placeholder="Enter 6-digit code"
+                className="flex-1 min-w-0 h-13 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/60 px-3 text-center font-mono text-base sm:text-lg font-bold tracking-wider sm:tracking-widest text-zinc-900 dark:text-zinc-100 placeholder:text-xs sm:placeholder:text-sm placeholder:font-semibold placeholder:tracking-wider placeholder:text-zinc-400 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600 transition-all uppercase"
+              />
+              <button
+                type="button"
+                onClick={handlePaste}
+                className="h-13 px-3.5 shrink-0 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100/80 hover:bg-zinc-200/80 dark:bg-zinc-800/80 dark:hover:bg-zinc-700/80 text-xs font-semibold text-zinc-700 dark:text-zinc-200 flex items-center justify-center transition-all active:scale-95"
+              >
+                Paste
+              </button>
               <button
                 type="submit"
                 aria-label="Join Room"
