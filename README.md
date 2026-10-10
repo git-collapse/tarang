@@ -1,9 +1,9 @@
-# Tarang (तरंग) 🌊
+# तरंग 🌊
 
 > **Waves of data between screens.**
 > Instant, peer-to-peer file, folder, photo, and text messaging between devices with zero cloud storage.
 
-Live Deployment: **[https://tarang-huvy.onrender.com](https://tarang-huvy.onrender.com)**
+Live Deployment: **[https://shubhamlab.onrender.com/]**
 
 Built with **React 19**, **Tailwind CSS v4**, **WebRTC DataChannels**, and **Socket.io**.
 
