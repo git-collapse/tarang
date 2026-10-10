@@ -129,6 +129,17 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Real-time Text Messaging & Snippet Feed
+  socket.on('send-message', ({ roomId, message }) => {
+    const targetRoom = normalizeRoomId(roomId) || currentRoom;
+    if (targetRoom) {
+      socket.to(targetRoom).emit('receive-message', {
+        fromPeerId: socket.id,
+        message,
+      });
+    }
+  });
+
   // Fallback WebSocket Relay Transfer for files/chunks (guarantees transfer even when WebRTC NAT fails)
   socket.on('relay-chunk-meta', ({ targetPeerId, fileMeta }) => {
     if (targetPeerId) {

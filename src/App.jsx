@@ -27,6 +27,7 @@ export default function App() {
   const [activeTransfers, setActiveTransfers] = useState([]);
   const [receivedFiles, setReceivedFiles] = useState([]);
   const [syncedText, setSyncedText] = useState('');
+  const [messages, setMessages] = useState([]);
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   const [networkInfo, setNetworkInfo] = useState({ primaryIp: window.location.hostname, port: window.location.port || 3000 });
 
@@ -174,11 +175,17 @@ export default function App() {
       setSyncedText(text);
     });
 
+    socket.on('receive-message', ({ message }) => {
+      setMessages((prev) => [...prev, { ...message, isMe: false }]);
+      playPeerJoinChime();
+    });
+
     return () => {
       socket.off('room-joined');
       socket.off('peer-joined');
       socket.off('peer-left');
       socket.off('sync-text');
+      socket.off('receive-message');
       manager.destroy();
     };
   }, [socket, roomCode]);
@@ -217,6 +224,7 @@ export default function App() {
     setActiveTransfers([]);
     setReceivedFiles([]);
     setSyncedText('');
+    setMessages([]);
     setIsDirectP2P(false);
 
     window.history.replaceState({}, '', window.location.pathname);
@@ -251,6 +259,27 @@ export default function App() {
     }
   };
 
+  // Real-time Text Messaging & Snippet sending
+  const handleSendMessage = (text) => {
+    if (!text || !roomCode) return;
+    const msgObj = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      text,
+      senderId: socket?.id,
+      senderName: deviceInfo?.deviceName || 'Device',
+      timestamp: Date.now(),
+    };
+
+    setMessages((prev) => [...prev, { ...msgObj, isMe: true }]);
+
+    if (socket) {
+      socket.emit('send-message', {
+        roomId: roomCode,
+        message: msgObj,
+      });
+    }
+  };
+
   // Download all received files as a single ZIP
   const handleDownloadAllZip = async () => {
     if (receivedFiles.length === 0) return;
@@ -274,10 +303,10 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col justify-between relative overflow-hidden bg-zinc-50 dark:bg-zinc-950 transition-colors duration-500 font-sans">
       
-      {/* Ambient background pulsing orbs (inspired by QuickSync mohitlab.vercel.app) */}
+      {/* Ambient subtle background orbs */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] bg-blue-500/10 dark:bg-blue-600/15 rounded-full blur-3xl animate-glow-1" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-violet-500/10 dark:bg-indigo-600/15 rounded-full blur-3xl animate-glow-2" />
+        <div className="absolute top-[-10%] left-[-10%] w-[45%] h-[45%] bg-zinc-400/10 dark:bg-zinc-800/20 rounded-full blur-3xl animate-glow-1" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-zinc-500/10 dark:bg-zinc-700/20 rounded-full blur-3xl animate-glow-2" />
       </div>
 
       {/* Header */}
@@ -310,6 +339,8 @@ export default function App() {
             onCancelTransfer={handleCancelTransfer}
             syncedText={syncedText}
             onTextChange={handleTextChange}
+            messages={messages}
+            onSendMessage={handleSendMessage}
             isDirectP2P={isDirectP2P}
           />
         )}
@@ -324,8 +355,8 @@ export default function App() {
       />
 
       {/* Footer */}
-      <footer className="w-full py-4 text-center text-xs text-zinc-400 dark:text-zinc-500 z-10">
-        <p>© 2026 QuickDrop • Peer-to-Peer Direct Transfer • Zero Cloud Storage</p>
+      <footer className="w-full py-4 text-center text-xs text-zinc-400 dark:text-zinc-600 z-10">
+        <p>© 2026 QuickSync • Instant Peer-to-Peer Transfer</p>
       </footer>
     </div>
   );

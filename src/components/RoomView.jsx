@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   QrCode, Copy, Check, LogOut, Laptop, Smartphone, UploadCloud, 
-  File, Folder, Image as ImageIcon, FileText, Download, Archive, 
-  Trash2, X, ExternalLink, RefreshCw, Send, CheckCircle2, AlertCircle
+  File, Folder, Image as ImageIcon, MessageSquare, Download, Archive, 
+  X, ExternalLink, RefreshCw, Send, ClipboardPaste, FileText, CheckCircle2
 } from 'lucide-react';
 import { formatBytes, formatSpeed, formatTimeRemaining } from '../utils/device';
 import { triggerDownload } from '../utils/zip';
@@ -21,21 +21,38 @@ export default function RoomView({
   onCancelTransfer,
   syncedText,
   onTextChange,
+  messages = [],
+  onSendMessage,
   isDirectP2P,
 }) {
-  const [activeTab, setActiveTab] = useState('files'); // 'files' | 'images' | 'text'
+  const [activeTab, setActiveTab] = useState('text'); // default to 'text' for proper texting or 'files'
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
+  const [copiedMsgId, setCopiedMsgId] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedImagePreview, setSelectedImagePreview] = useState(null);
+  
+  // Message input state
+  const [messageInput, setMessageInput] = useState('');
+  const [textMode, setTextMode] = useState('chat'); // 'chat' | 'scratchpad'
+  const messagesEndRef = useRef(null);
 
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
 
-  const displayCode = roomCode && roomCode.length === 6 ? `${roomCode.slice(0, 3)}-${roomCode.slice(3)}` : roomCode;
+  const displayCode = roomCode && roomCode.length === 6 
+    ? `${roomCode.slice(0, 3)} ${roomCode.slice(3)}` 
+    : roomCode;
+
+  // Auto-scroll message feed
+  useEffect(() => {
+    if (activeTab === 'text' && textMode === 'chat') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, activeTab, textMode]);
 
   const handleCopyRoomCode = () => {
-    navigator.clipboard.writeText(displayCode);
+    navigator.clipboard.writeText(displayCode.replace(/\s+/g, ''));
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
   };
@@ -44,6 +61,29 @@ export default function RoomView({
     navigator.clipboard.writeText(syncedText);
     setCopiedText(true);
     setTimeout(() => setCopiedText(false), 2000);
+  };
+
+  const handleCopyMessage = (text, id) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMsgId(id);
+    setTimeout(() => setCopiedMsgId(null), 2000);
+  };
+
+  const handleSendMessageSubmit = (e) => {
+    e?.preventDefault();
+    const trimmed = messageInput.trim();
+    if (!trimmed) return;
+    onSendMessage(trimmed);
+    setMessageInput('');
+  };
+
+  const handleQuickPaste = async () => {
+    try {
+      const clipText = await navigator.clipboard.readText();
+      if (clipText) {
+        setMessageInput(clipText);
+      }
+    } catch {}
   };
 
   // Drag and drop handlers
@@ -78,7 +118,6 @@ export default function RoomView({
       }
 
       if (queue.length > 0) {
-        // Recursive reader for folders & files
         const readEntries = async (entry, path = '') => {
           if (entry.isFile) {
             return new Promise((resolve) => {
@@ -122,118 +161,148 @@ export default function RoomView({
 
   const receivedImages = receivedFiles.filter((f) => f.mimeType?.startsWith('image/'));
 
+  // Helper to render URLs as clickable links
+  const renderMessageContent = (text) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    return parts.map((part, i) => {
+      if (part.match(urlRegex)) {
+        return (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 break-all text-blue-600 dark:text-blue-400 hover:opacity-80"
+          >
+            {part}
+          </a>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 py-2 z-10 animate-in fade-in duration-300">
+    <div className="w-full max-w-3xl mx-auto px-4 py-1 z-10 animate-in fade-in duration-200">
       
       {/* Top Room Bar */}
-      <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xl mb-4 flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-sm mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
-            <span className="text-[10px] text-zinc-400 font-mono tracking-wider uppercase">Active Room</span>
+            <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wider">Room Code</span>
             <div className="flex items-center gap-2">
-              <span className="text-2xl font-black font-mono tracking-widest text-zinc-900 dark:text-zinc-50">
+              <span className="text-2xl font-bold font-mono tracking-wider text-zinc-900 dark:text-zinc-50">
                 {displayCode}
               </span>
               <button
                 onClick={handleCopyRoomCode}
                 title="Copy Room Code"
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
               >
                 {copiedCode ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
               </button>
             </div>
           </div>
 
-          <div className="h-8 w-px bg-zinc-200 dark:bg-zinc-800 mx-1 hidden sm:block" />
+          <div className="h-7 w-px bg-zinc-200 dark:bg-zinc-800 mx-1 hidden sm:block" />
 
-          {/* Connection Status Badge */}
-          <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border bg-zinc-50 dark:bg-zinc-800/60 border-zinc-200 dark:border-zinc-700">
-            <span className={`w-2 h-2 rounded-full ${peers.length > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-            <span className="text-zinc-600 dark:text-zinc-300">
-              {peers.length > 0 ? `${peers.length} Device${peers.length > 1 ? 's' : ''} Connected` : 'Waiting for peers...'}
+          {/* Status badge */}
+          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
+            <span className={`w-2 h-2 rounded-full ${peers.length > 0 ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            <span>
+              {peers.length > 0 ? `${peers.length} Device${peers.length > 1 ? 's' : ''} Connected` : 'Waiting for device...'}
             </span>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {onNewRoomCode && (
             <button
               onClick={onNewRoomCode}
-              title="Generate a brand new room code"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700/60 transition-all hover:scale-105 active:scale-95"
+              title="Generate a new room code"
+              className="p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-800 transition-colors flex items-center gap-1.5"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-zinc-500" />
-              <span>New Code</span>
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">New Code</span>
             </button>
           )}
 
           <button
             onClick={onOpenQR}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700/60 transition-all hover:scale-105 active:scale-95"
+            className="p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-800 transition-colors flex items-center gap-1.5"
           >
-            <QrCode className="w-4 h-4 text-blue-500" />
-            <span>Scan QR</span>
+            <QrCode className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">QR Code</span>
           </button>
 
           <button
             onClick={onLeaveRoom}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 transition-all active:scale-95"
+            className="p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200/60 dark:border-rose-900/40 transition-colors flex items-center gap-1.5"
           >
-            <LogOut className="w-4 h-4" />
-            <span>Leave</span>
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Leave</span>
           </button>
         </div>
       </div>
 
-      {/* Connected Devices Strip */}
-      <div className="bg-white/50 dark:bg-zinc-900/50 backdrop-blur-md border border-zinc-200/70 dark:border-zinc-800/70 rounded-xl p-3 mb-4 flex items-center justify-between overflow-x-auto text-xs">
-        <div className="flex items-center gap-3">
-          <span className="text-zinc-400 font-medium">In this room:</span>
-          {/* Current device */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 font-medium">
-            {deviceInfo?.isMobile ? <Smartphone className="w-3.5 h-3.5" /> : <Laptop className="w-3.5 h-3.5" />}
-            <span>{deviceInfo?.deviceName} (You)</span>
-          </div>
-
-          {/* Remote peers */}
-          {peers.map((peer) => (
-            <div
-              key={peer.id}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 font-medium animate-in fade-in"
-            >
-              {peer.isMobile ? <Smartphone className="w-3.5 h-3.5 text-zinc-400" /> : <Laptop className="w-3.5 h-3.5 text-zinc-400" />}
-              <span>{peer.deviceName || 'Peer Device'}</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${isDirectP2P ? 'bg-emerald-500' : 'bg-blue-500'}`} title={isDirectP2P ? 'Direct P2P' : 'Relay'} />
-            </div>
-          ))}
-
-          {peers.length === 0 && (
-            <span className="text-zinc-400 italic">No other devices yet. Scan QR or share code to connect.</span>
-          )}
+      {/* Connected Peers Strip */}
+      <div className="mb-4 flex items-center gap-2 overflow-x-auto text-xs px-1">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/80 text-zinc-700 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60">
+          {deviceInfo?.isMobile ? <Smartphone className="w-3.5 h-3.5 text-zinc-400" /> : <Laptop className="w-3.5 h-3.5 text-zinc-400" />}
+          <span>{deviceInfo?.deviceName} (You)</span>
         </div>
 
-        {isDirectP2P && (
-          <span className="hidden sm:inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-            ⚡ WebRTC Direct P2P
+        {peers.map((peer) => (
+          <div
+            key={peer.id}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 font-medium animate-in fade-in"
+          >
+            {peer.isMobile ? <Smartphone className="w-3.5 h-3.5 opacity-80" /> : <Laptop className="w-3.5 h-3.5 opacity-80" />}
+            <span>{peer.deviceName || 'Peer Device'}</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          </div>
+        ))}
+
+        {peers.length === 0 && (
+          <span className="text-zinc-400 italic text-[11px] ml-1">
+            Scan QR or enter this code on your other device to connect.
           </span>
         )}
       </div>
 
-      {/* Main Tabs Navigation */}
-      <div className="flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-2">
+      {/* Minimal Tabs Navigation */}
+      <div className="flex items-center gap-1 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-2">
         <button
-          onClick={() => setActiveTab('files')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
-            activeTab === 'files'
-              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-md'
-              : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+          onClick={() => setActiveTab('text')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            activeTab === 'text'
+              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-sm'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
           }`}
         >
-          <File className="w-4 h-4" />
+          <MessageSquare className="w-3.5 h-3.5" />
+          <span>Text & Messages</span>
+          {messages.length > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-700 text-zinc-200 dark:bg-zinc-300 dark:text-zinc-800">
+              {messages.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('files')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            activeTab === 'files'
+              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-sm'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+          }`}
+        >
+          <File className="w-3.5 h-3.5" />
           <span>Files & Folders</span>
           {receivedFiles.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-600 text-white">
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-700 text-zinc-200 dark:bg-zinc-300 dark:text-zinc-800">
               {receivedFiles.length}
             </span>
           )}
@@ -241,35 +310,187 @@ export default function RoomView({
 
         <button
           onClick={() => setActiveTab('images')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
             activeTab === 'images'
-              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-md'
-              : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-sm'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
           }`}
         >
-          <ImageIcon className="w-4 h-4" />
-          <span>Images</span>
+          <ImageIcon className="w-3.5 h-3.5" />
+          <span>Photos</span>
           {receivedImages.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-600 text-white">
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-700 text-zinc-200 dark:bg-zinc-300 dark:text-zinc-800">
               {receivedImages.length}
             </span>
           )}
         </button>
-
-        <button
-          onClick={() => setActiveTab('text')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
-            activeTab === 'text'
-              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-md'
-              : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          <span>QuickSync Text</span>
-        </button>
       </div>
 
-      {/* Tab 1: Files & Folders */}
+      {/* TAB 1: PROPER TEXTING & MESSAGING */}
+      {activeTab === 'text' && (
+        <div className="bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+          
+          {/* Header & Sub-mode toggle: Chat vs Live Notepad */}
+          <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800/60 pb-3">
+            <div className="flex items-center gap-1.5 p-1 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl text-xs">
+              <button
+                onClick={() => setTextMode('chat')}
+                className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                  textMode === 'chat'
+                    ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                }`}
+              >
+                Instant Messages
+              </button>
+              <button
+                onClick={() => setTextMode('scratchpad')}
+                className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                  textMode === 'scratchpad'
+                    ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs'
+                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                }`}
+              >
+                Live Synced Notepad
+              </button>
+            </div>
+
+            {textMode === 'scratchpad' ? (
+              <button
+                onClick={handleCopyText}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedText ? 'Copied' : 'Copy All'}</span>
+              </button>
+            ) : (
+              <span className="text-[11px] text-zinc-400">
+                {messages.length} message{messages.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+
+          {/* Sub-mode A: Instant Messages / Snippets Feed */}
+          {textMode === 'chat' && (
+            <div className="space-y-4">
+              {/* Message Feed Container */}
+              <div className="min-h-[260px] max-h-[380px] overflow-y-auto space-y-2.5 pr-1">
+                {messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-14 text-center text-zinc-400 text-xs space-y-1">
+                    <MessageSquare className="w-6 h-6 opacity-40 mb-1" />
+                    <p className="font-medium text-zinc-500 dark:text-zinc-400">No messages yet</p>
+                    <p>Type below or paste text to share instantly between devices.</p>
+                  </div>
+                ) : (
+                  messages.map((msg) => {
+                    const isMe = msg.senderId === deviceInfo?.id || msg.isMe;
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group`}
+                      >
+                        <div className="flex items-center gap-2 mb-1 px-1">
+                          <span className="text-[10px] text-zinc-400">
+                            {isMe ? 'You' : msg.senderName || 'Peer'}
+                          </span>
+                          <span className="text-[9px] text-zinc-400">
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 max-w-[85%] sm:max-w-[75%]">
+                          <div
+                            className={`p-3 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                              isMe
+                                ? 'bg-zinc-900 text-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 rounded-tr-sm'
+                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tl-sm border border-zinc-200/60 dark:border-zinc-700/60'
+                            }`}
+                          >
+                            {renderMessageContent(msg.text)}
+                          </div>
+
+                          {/* Quick Copy Button on message */}
+                          <button
+                            onClick={() => handleCopyMessage(msg.text, msg.id)}
+                            title="Copy text"
+                            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 opacity-60 group-hover:opacity-100 transition-opacity"
+                          >
+                            {copiedMsgId === msg.id ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Message Input Box */}
+              <form onSubmit={handleSendMessageSubmit} className="pt-2 flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    placeholder="Type a message, note, or link..."
+                    className="w-full h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3.5 text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600 transition-all pr-16"
+                  />
+                  {!messageInput && (
+                    <button
+                      type="button"
+                      onClick={handleQuickPaste}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded text-[11px] font-medium text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                    >
+                      Paste
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={!messageInput.trim()}
+                  className="h-11 px-4 rounded-xl bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 font-medium text-xs sm:text-sm hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Send</span>
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Sub-mode B: Live Collaborative Scratchpad (QuickSync Notepad) */}
+          {textMode === 'scratchpad' && (
+            <div className="space-y-3">
+              <textarea
+                value={syncedText}
+                onChange={(e) => onTextChange(e.target.value)}
+                placeholder="Type or paste notes, code snippets, or text here to sync live across devices..."
+                rows={9}
+                className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-3.5 font-mono text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600 resize-y leading-relaxed"
+              />
+
+              <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+                <span>{syncedText.length} characters • {syncedText.trim() ? syncedText.trim().split(/\s+/).length : 0} words</span>
+                {syncedText && (
+                  <button
+                    onClick={() => onTextChange('')}
+                    className="text-rose-500 hover:underline"
+                  >
+                    Clear Note
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* TAB 2: FILES & FOLDERS */}
       {activeTab === 'files' && (
         <div className="space-y-4">
           {/* Dropzone */}
@@ -277,48 +498,44 @@ export default function RoomView({
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            className={`border-2 border-dashed rounded-2xl p-8 sm:p-10 text-center transition-all duration-200 backdrop-blur-xl ${
+            className={`border border-dashed rounded-2xl p-7 sm:p-9 text-center transition-all duration-200 ${
               isDragOver
-                ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/30 scale-[1.01]'
-                : 'border-zinc-300 dark:border-zinc-700/80 bg-white/60 dark:bg-zinc-900/60 hover:border-zinc-400 dark:hover:border-zinc-600'
+                ? 'border-zinc-900 dark:border-zinc-100 bg-zinc-100/60 dark:bg-zinc-800/60'
+                : 'border-zinc-300 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/60 hover:border-zinc-400 dark:hover:border-zinc-700'
             }`}
           >
-            <div className="flex flex-col items-center justify-center space-y-4 max-w-sm mx-auto">
-              <div className={`p-4 rounded-2xl transition-transform ${isDragOver ? 'scale-110' : ''} bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 shadow-sm`}>
-                <UploadCloud className="w-8 h-8" />
-              </div>
-
+            <div className="flex flex-col items-center justify-center space-y-3 max-w-sm mx-auto">
+              <UploadCloud className="w-8 h-8 text-zinc-400" />
               <div>
-                <p className="font-bold text-base sm:text-lg text-zinc-900 dark:text-zinc-100">
-                  Drag & Drop files or folders here
+                <p className="font-semibold text-sm sm:text-base text-zinc-900 dark:text-zinc-100">
+                  Drag and drop files or folders
                 </p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                  Unlimited size • Transferred directly to connected peers
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Direct peer transfer with no file size limit
                 </p>
               </div>
 
               {/* Upload buttons */}
-              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+              <div className="flex items-center justify-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-zinc-900 shadow-sm transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5"
                 >
-                  <File className="w-4 h-4" />
+                  <File className="w-3.5 h-3.5" />
                   <span>Select Files</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => folderInputRef.current?.click()}
-                  className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 transition-colors flex items-center gap-1.5 border border-zinc-200/60 dark:border-zinc-700/60"
                 >
-                  <Folder className="w-4 h-4" />
+                  <Folder className="w-3.5 h-3.5" />
                   <span>Select Folder</span>
                 </button>
               </div>
 
-              {/* Hidden Inputs */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -338,51 +555,44 @@ export default function RoomView({
             </div>
           </div>
 
-          {/* Active Transfers List */}
+          {/* Active Transfers */}
           {activeTransfers.length > 0 && (
-            <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-lg space-y-3">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                Active Transfers ({activeTransfers.length})
+            <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 shadow-xs space-y-2.5">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Transferring ({activeTransfers.length})
               </h4>
               <div className="space-y-2">
                 {activeTransfers.map((item) => (
                   <div
                     key={item.fileId}
-                    className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/80 dark:border-zinc-700/60 space-y-2"
+                    className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/60 dark:border-zinc-700/60 space-y-1.5"
                   >
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2 overflow-hidden pr-2">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          item.isSending ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                        }`}>
-                          {item.isSending ? 'Sending' : 'Receiving'}
-                        </span>
-                        <span className="font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                        <span className="font-medium text-zinc-900 dark:text-zinc-100 truncate">
                           {item.name}
                         </span>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0 text-zinc-500 text-[11px]">
+                      <div className="flex items-center gap-2.5 shrink-0 text-zinc-400 text-[11px]">
                         <span>{formatSpeed(item.speed)}</span>
                         <span>{formatTimeRemaining(item.eta)}</span>
                         <button
                           onClick={() => onCancelTransfer(item.fileId)}
-                          className="text-zinc-400 hover:text-rose-500"
-                          title="Cancel transfer"
+                          className="hover:text-rose-500"
                         >
-                          <X className="w-4 h-4" />
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
 
-                    {/* Progress Bar */}
-                    <div className="w-full bg-zinc-200 dark:bg-zinc-700 h-2 rounded-full overflow-hidden">
+                    <div className="w-full bg-zinc-200 dark:bg-zinc-700 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className="bg-blue-600 h-full rounded-full transition-all duration-300 ease-out"
+                        className="bg-zinc-900 dark:bg-zinc-100 h-full rounded-full transition-all duration-200"
                         style={{ width: `${item.progress}%` }}
                       />
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+                    <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
                       <span>{formatBytes(item.bytesTransferred)} / {formatBytes(item.totalBytes)}</span>
                       <span>{item.progress}%</span>
                     </div>
@@ -393,52 +603,52 @@ export default function RoomView({
           )}
 
           {/* Received Files List */}
-          <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3">
+          <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                Received Items ({receivedFiles.length})
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Received Files ({receivedFiles.length})
               </h4>
               {receivedFiles.length > 1 && (
                 <button
                   onClick={onDownloadAllZip}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 transition-opacity hover:opacity-90"
                 >
                   <Archive className="w-3.5 h-3.5" />
-                  <span>Download All as ZIP</span>
+                  <span>Download All (.zip)</span>
                 </button>
               )}
             </div>
 
             {receivedFiles.length === 0 ? (
-              <div className="text-center py-10 text-zinc-400 text-xs">
-                No files received yet. Drop items above to start transferring!
+              <div className="text-center py-8 text-zinc-400 text-xs">
+                No files received yet.
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {receivedFiles.map((file) => (
                   <div
                     key={file.fileId}
-                    className="flex items-center justify-between p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/80 dark:border-zinc-700/60 group hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200/60 dark:border-zinc-700/60"
                   >
-                    <div className="flex items-center gap-3 overflow-hidden pr-2">
+                    <div className="flex items-center gap-2.5 overflow-hidden pr-2">
                       {file.previewUrl ? (
                         <img
                           src={file.previewUrl}
                           alt={file.name}
                           onClick={() => setSelectedImagePreview(file.previewUrl)}
-                          className="w-10 h-10 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity border border-zinc-200 dark:border-zinc-700"
+                          className="w-9 h-9 object-cover rounded-lg cursor-pointer border border-zinc-200 dark:border-zinc-700"
                         />
                       ) : (
-                        <div className="w-10 h-10 rounded-lg bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-zinc-500 shrink-0">
-                          <File className="w-5 h-5" />
+                        <div className="w-9 h-9 rounded-lg bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-zinc-500 shrink-0">
+                          <File className="w-4 h-4" />
                         </div>
                       )}
 
                       <div className="overflow-hidden">
-                        <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                        <p className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">
                           {file.name}
                         </p>
-                        <p className="text-[11px] text-zinc-400 font-mono">
+                        <p className="text-[10px] text-zinc-400 font-mono">
                           {formatBytes(file.size)}
                         </p>
                       </div>
@@ -446,10 +656,10 @@ export default function RoomView({
 
                     <button
                       onClick={() => triggerDownload(file.blob, file.name)}
-                      className="p-2 rounded-lg bg-zinc-200/80 hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-200 transition-colors shrink-0"
-                      title="Download file"
+                      className="p-1.5 rounded-lg bg-zinc-200/70 hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-200 transition-colors shrink-0"
+                      title="Download"
                     >
-                      <Download className="w-4 h-4" />
+                      <Download className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 ))}
@@ -459,45 +669,46 @@ export default function RoomView({
         </div>
       )}
 
-      {/* Tab 2: Images Gallery */}
+      {/* TAB 3: PHOTOS */}
       {activeTab === 'images' && (
-        <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-lg space-y-4">
+        <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Shared Images</h4>
-            <span className="text-xs text-zinc-400">{receivedImages.length} images</span>
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Shared Photos ({receivedImages.length})
+            </h4>
           </div>
 
           {receivedImages.length === 0 ? (
-            <div className="text-center py-12 text-zinc-400 text-xs">
-              No photos or images shared yet. Drop images in the Files tab to preview them here!
+            <div className="text-center py-10 text-zinc-400 text-xs">
+              No photos shared yet. Send images in Files tab to view them here.
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
               {receivedImages.map((img) => (
                 <div
                   key={img.fileId}
-                  className="relative group rounded-xl overflow-hidden aspect-square border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 shadow-sm"
+                  className="relative group rounded-xl overflow-hidden aspect-square border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800"
                 >
                   <img
                     src={img.previewUrl}
                     alt={img.name}
-                    className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-200 cursor-pointer"
+                    className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-200"
                     onClick={() => setSelectedImagePreview(img.previewUrl)}
                   />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
                     <button
                       onClick={() => triggerDownload(img.blob, img.name)}
-                      className="p-2 rounded-full bg-white/90 text-zinc-900 hover:bg-white shadow-md transition-transform hover:scale-110"
+                      className="p-2 rounded-full bg-white text-zinc-900 shadow-sm"
                       title="Download"
                     >
-                      <Download className="w-4 h-4" />
+                      <Download className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => setSelectedImagePreview(img.previewUrl)}
-                      className="p-2 rounded-full bg-white/90 text-zinc-900 hover:bg-white shadow-md transition-transform hover:scale-110"
-                      title="Preview"
+                      className="p-2 rounded-full bg-white text-zinc-900 shadow-sm"
+                      title="View"
                     >
-                      <ExternalLink className="w-4 h-4" />
+                      <ExternalLink className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -507,64 +718,23 @@ export default function RoomView({
         </div>
       )}
 
-      {/* Tab 3: Text & Notes (QuickSync clone feature) */}
-      {activeTab === 'text' && (
-        <div className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-lg space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Real-time QuickSync Text</h4>
-              <p className="text-xs text-zinc-400">Anything you paste or type updates instantly across all connected devices.</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleCopyText}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 transition-all hover:scale-105"
-              >
-                {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedText ? 'Copied!' : 'Copy Text'}</span>
-              </button>
-            </div>
-          </div>
-
-          <textarea
-            value={syncedText}
-            onChange={(e) => onTextChange(e.target.value)}
-            placeholder="Type or paste text, links, code snippets or notes here..."
-            rows={10}
-            className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700/80 bg-zinc-50 dark:bg-zinc-950 p-4 font-mono text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-y"
-          />
-
-          <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
-            <span>{syncedText.length} characters • {syncedText.trim() ? syncedText.trim().split(/\s+/).length : 0} words</span>
-            {syncedText && (
-              <button
-                onClick={() => onTextChange('')}
-                className="text-rose-500 hover:text-rose-600 transition-colors"
-              >
-                Clear Text
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Lightbox Modal for Images */}
+      {/* Lightbox Modal */}
       {selectedImagePreview && (
         <div
           onClick={() => setSelectedImagePreview(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in"
         >
           <div className="relative max-w-4xl max-h-[90vh]">
             <button
               onClick={() => setSelectedImagePreview(null)}
-              className="absolute -top-10 right-0 p-1 text-white hover:text-zinc-300"
+              className="absolute -top-9 right-0 p-1 text-white hover:text-zinc-300"
             >
-              <X className="w-6 h-6" />
+              <X className="w-5 h-5" />
             </button>
             <img
               src={selectedImagePreview}
               alt="Fullscreen preview"
-              className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl"
+              className="max-w-full max-h-[85vh] rounded-xl object-contain"
             />
           </div>
         </div>
