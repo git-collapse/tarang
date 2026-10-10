@@ -1,15 +1,19 @@
 import React from 'react';
-import { Sun, Moon, Laptop, Smartphone } from 'lucide-react';
+import { Sun, Moon, Laptop, Smartphone, Waves } from 'lucide-react';
 
 export default function Header({ theme, toggleTheme, deviceInfo, isConnected }) {
   return (
     <header className="w-full flex items-center justify-between py-5 px-6 max-w-4xl mx-auto z-20">
       <div className="flex items-center gap-2.5">
         <div className="flex items-center gap-2">
+          <Waves className="w-5 h-5 text-zinc-900 dark:text-zinc-100" />
           <span className="font-bold text-lg tracking-tight text-zinc-900 dark:text-zinc-50">
-            QuickSync
+            Tarang
           </span>
-          <span className="flex h-2 w-2 relative">
+          <span className="text-[11px] font-normal text-zinc-400 dark:text-zinc-500">
+            तरंग
+          </span>
+          <span className="flex h-2 w-2 relative ml-0.5">
             <span
               className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                 isConnected ? 'bg-emerald-400' : 'bg-amber-400'

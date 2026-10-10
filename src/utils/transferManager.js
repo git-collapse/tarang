@@ -83,7 +83,7 @@ export class TransferManager {
     };
 
     if (isInitiator) {
-      const channel = pc.createDataChannel('dropsync-data', { ordered: true });
+      const channel = pc.createDataChannel('tarang-data', { ordered: true });
       this.setupDataChannel(channel, targetPeerId);
       this.dataChannels.set(targetPeerId, channel);
 

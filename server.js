@@ -222,7 +222,7 @@ app.use((req, res, next) => {
   }
   res.sendFile(path.join(distPath, 'index.html'), (err) => {
     if (err) {
-      res.status(200).send('QuickDrop Server is running. In dev mode, open http://localhost:3000');
+      res.status(200).send('Tarang Server is running. In dev mode, open http://localhost:3000');
     }
   });
 });
@@ -230,7 +230,7 @@ app.use((req, res, next) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, '0.0.0.0', () => {
   const ips = getLocalIpAddresses();
-  console.log(`\n🚀 DropSync Server is running!`);
+  console.log(`\n🚀 Tarang Server is running!`);
   console.log(`   - Local:    http://localhost:${PORT}`);
   ips.forEach((net) => {
     console.log(`   - Network (${net.interface}): http://${net.ip}:${PORT}`);

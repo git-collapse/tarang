@@ -289,7 +289,7 @@ export default function App() {
       blob: f.blob,
     }));
     const zipBlob = await createZipFromFiles(items);
-    triggerDownload(zipBlob, `QuickDrop-${roomCode || 'bundle'}.zip`);
+    triggerDownload(zipBlob, `Tarang-${roomCode || 'bundle'}.zip`);
   };
 
   // Direct Join URL (clean, transparent, no proxy/tunnel masking)
@@ -356,7 +356,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="w-full py-4 text-center text-xs text-zinc-400 dark:text-zinc-600 z-10">
-        <p>© 2026 QuickSync • Instant Peer-to-Peer Transfer</p>
+        <p>© 2026 Tarang (तरंग) • Instant Peer-to-Peer Transfer</p>
       </footer>
     </div>
   );
