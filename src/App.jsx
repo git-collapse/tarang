@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import confetti from 'canvas-confetti';
-
 import Header from './components/Header';
 import Lobby from './components/Lobby';
 import RoomView from './components/RoomView';
@@ -10,7 +8,6 @@ import QRCodeModal from './components/QRCodeModal';
 import { getDeviceInfo } from './utils/device';
 import { TransferManager } from './utils/transferManager';
 import { createZipFromFiles, triggerDownload } from './utils/zip';
-import { playSuccessChime, playPeerJoinChime } from './utils/sound';
 
 export default function App() {
   const [theme, setTheme] = useState(() => {
@@ -162,22 +159,10 @@ export default function App() {
       },
       onTransferComplete: ({ fileId, name, isSending }) => {
         setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileId));
-        playSuccessChime();
-        confetti({
-          particleCount: 50,
-          spread: 60,
-          origin: { y: 0.8 },
-        });
       },
       onFileReceived: (fileItem) => {
         setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileItem.fileId));
         setReceivedFiles((prev) => [fileItem, ...prev]);
-        playSuccessChime();
-        confetti({
-          particleCount: 70,
-          spread: 70,
-          origin: { y: 0.7 },
-        });
       },
     });
 
@@ -196,7 +181,6 @@ export default function App() {
 
     socket.on('peer-joined', ({ peer }) => {
       setPeers((prev) => [...prev.filter((p) => p.id !== peer.id), peer]);
-      playPeerJoinChime();
       if (socket.id > peer.id) {
         manager.connectToPeer(peer.id);
       }
@@ -216,7 +200,6 @@ export default function App() {
 
     socket.on('receive-message', ({ message }) => {
       setMessages((prev) => [...prev, { ...message, isMe: false }]);
-      playPeerJoinChime();
     });
 
     return () => {
