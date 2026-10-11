@@ -55,6 +55,8 @@ export default function RoomView({
   isDirectP2P,
   connectionMode = 'idle',
   isPinProtected = false,
+  roomPin = '',
+  onSetPin,
   localStream = null,
   remoteStreams = [],
   micEnabled = true,
@@ -72,6 +74,10 @@ export default function RoomView({
   const [copiedMsgId, setCopiedMsgId] = useState(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedImagePreview, setSelectedImagePreview] = useState(null);
+
+  // In-room PIN editor
+  const [showPinEditor, setShowPinEditor] = useState(false);
+  const [pinDraft, setPinDraft] = useState(roomPin || '');
   
   // Message input state
   const [messageInput, setMessageInput] = useState('');
@@ -310,6 +316,22 @@ export default function RoomView({
           )}
 
           <button
+            onClick={() => {
+              setPinDraft(roomPin || '');
+              setShowPinEditor((v) => !v);
+            }}
+            title={isPinProtected ? 'Change or remove room PIN' : 'Secure this room with a PIN'}
+            className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-medium border transition-colors flex items-center gap-1.5 ${
+              isPinProtected
+                ? 'text-emerald-700 dark:text-emerald-400 border-emerald-200/60 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/40'
+                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200/60 dark:border-zinc-800'
+            }`}
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{isPinProtected ? 'PIN On' : 'Set PIN'}</span>
+          </button>
+
+          <button
             onClick={onOpenQR}
             className="p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-800 transition-colors flex items-center gap-1.5"
           >
@@ -326,6 +348,38 @@ export default function RoomView({
           </button>
         </div>
       </div>
+
+      {/* In-room PIN editor */}
+      {showPinEditor && (
+        <div className="bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 shadow-sm mb-4 animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Lock className="w-3.5 h-3.5 text-zinc-500" />
+            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">Room PIN</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              value={pinDraft}
+              onChange={(e) => setPinDraft(e.target.value)}
+              placeholder="Enter a PIN to lock this room (blank = no PIN)"
+              className="flex-1 h-10 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600"
+            />
+            <button
+              onClick={() => {
+                onSetPin?.(pinDraft);
+                setShowPinEditor(false);
+              }}
+              className="h-10 px-4 rounded-xl bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-xs font-medium hover:opacity-90 transition-opacity"
+            >
+              {pinDraft.trim() ? 'Lock' : 'Clear'}
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-400 mt-2">
+            The PIN never leaves your device — it encrypts chat, notes & relayed files.
+            Enter the <strong>same PIN on both devices</strong> for them to understand each other.
+          </p>
+        </div>
+      )}
 
       {/* Connected Peers Strip */}
       <div className="mb-4 flex items-center gap-2 overflow-x-auto text-xs px-1">

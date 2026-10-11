@@ -4,7 +4,6 @@ import { Plus, ArrowRight, ShieldCheck, Zap, FolderUp, Lock } from 'lucide-react
 export default function Lobby({ onJoinRoom, onGenerateCode }) {
   const [inputCode, setInputCode] = useState('');
   const [pin, setPin] = useState('');
-  const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
@@ -119,32 +118,27 @@ export default function Lobby({ onJoinRoom, onGenerateCode }) {
             {error && <p className="text-xs text-rose-500 text-center font-medium">{error}</p>}
           </form>
 
-          {/* Optional PIN for extra security (mixed into the encryption key) */}
-          {!showPin ? (
-            <button
-              type="button"
-              onClick={() => setShowPin(true)}
-              className="w-full flex items-center justify-center gap-1.5 text-[11px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
-            >
-              <Lock className="w-3 h-3" /> Add optional PIN (extra security)
-            </button>
-          ) : (
-            <div className="space-y-1">
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
-                <input
-                  type="password"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  placeholder="Optional PIN — must match on both devices"
-                  className="w-full h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/60 pl-9 pr-3 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600 transition-all"
-                />
-              </div>
-              <p className="text-[10px] text-zinc-400 text-center px-1">
-                Encrypts chat, notes & relayed files with a secret only your devices know.
-              </p>
+          {/* Optional Room PIN — always visible so it can be set before creating/joining */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                <Lock className="w-3 h-3" /> Room PIN
+              </span>
+              <span className="text-[10px] text-zinc-400">optional</span>
             </div>
-          )}
+            <input
+              type="password"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="Set a PIN to lock this room (both devices must match)"
+              className="w-full h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/60 px-3.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600 transition-all"
+            />
+            <p className="text-[10px] text-zinc-400 px-1">
+              {pin.trim()
+                ? '🔒 Chat, notes & relayed files will be encrypted with this PIN.'
+                : 'Leave blank for a quick open room, or add a PIN for extra security.'}
+            </p>
+          </div>
 
           {/* Tip Box */}
           <div className="rounded-xl border border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/80 dark:bg-zinc-950/50 p-3 text-center text-xs text-zinc-500 dark:text-zinc-400">

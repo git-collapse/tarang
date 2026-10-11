@@ -386,6 +386,12 @@ export default function App() {
     setCameraEnabled(next);
   };
 
+  // Set / change / clear the room PIN from inside the room. Re-derives the
+  // encryption key live (the key-derivation effect depends on roomPin).
+  const handleSetPin = (pin) => {
+    setRoomPin((pin || '').trim());
+  };
+
   // Send Files to all connected peers
   const handleSendFiles = async (files) => {
     if (!transferManagerRef.current) return;
@@ -504,6 +510,8 @@ export default function App() {
             isDirectP2P={isDirectP2P}
             connectionMode={connectionMode}
             isPinProtected={!!roomPin}
+            roomPin={roomPin}
+            onSetPin={handleSetPin}
             localStream={localStream}
             remoteStreams={remoteStreams}
             micEnabled={micEnabled}
