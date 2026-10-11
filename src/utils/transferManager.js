@@ -3,6 +3,8 @@
  * Handles WebRTC P2P DataChannels with Socket.IO signaling and automatic relay fallback.
  */
 
+import { encryptString, decryptString, encryptBytes, decryptBytes } from './crypto';
+
 const CHUNK_SIZE = 64 * 1024; // 64 KB chunks
 const BUFFER_THRESHOLD = 512 * 1024; // 512 KB buffer threshold for flow control
 
@@ -40,6 +42,9 @@ export class TransferManager {
     this.localStream = null;
     this.lastMode = null;
 
+    // AES-GCM key for encrypting server-relayed payloads (null = plaintext)
+    this.cryptoKey = options.cryptoKey || null;
+
     // fileId -> { meta, receivedChunks, totalReceivedBytes, startTime, lastTime, lastBytes }
     this.incomingTransfers = new Map();
     // fileId -> { isCancelled: boolean }
@@ -53,19 +58,28 @@ export class TransferManager {
       await this.handleSignal(fromPeerId, data);
     });
 
-    // Fallback Socket Relay handlers
-    this.socket.on('relay-chunk-meta', ({ fromPeerId, fileMeta }) => {
-      this.handleIncomingMeta(fileMeta, fromPeerId, 'relay');
+    // Fallback Socket Relay handlers (payloads are E2E-encrypted via this.cryptoKey)
+    this.socket.on('relay-chunk-meta', async ({ fromPeerId, fileMeta }) => {
+      try {
+        const json = await decryptString(this.cryptoKey, fileMeta);
+        this.handleIncomingMeta(JSON.parse(json), fromPeerId, 'relay');
+      } catch (err) {
+        console.warn('[relay] bad meta payload:', err);
+      }
     });
 
-    this.socket.on('relay-chunk-data', ({ fromPeerId, fileId, chunkIndex, data }) => {
-      // data is ArrayBuffer or Base64/Buffer
-      this.handleIncomingChunk(fileId, chunkIndex, data);
+    this.socket.on('relay-chunk-data', async ({ fileId, chunkIndex, data }) => {
+      const plain = await decryptBytes(this.cryptoKey, data);
+      this.handleIncomingChunk(fileId, chunkIndex, plain);
     });
 
     this.socket.on('relay-chunk-complete', ({ fileId }) => {
       this.handleIncomingComplete(fileId);
     });
+  }
+
+  setCryptoKey(key) {
+    this.cryptoKey = key || null;
   }
 
   // --- WebRTC Connection Management ---
@@ -135,6 +149,7 @@ export class TransferManager {
       for (const track of this.localStream.getTracks()) {
         pc.addTrack(track, this.localStream);
       }
+      this.applyBitrateCaps(pc, this.isScreenShare).catch(() => {});
     }
 
     if (isInitiator) {
@@ -305,32 +320,64 @@ export class TransferManager {
   async startLocalMedia({ screen = false, video = true, audio = true } = {}) {
     let stream;
     if (screen) {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 15, max: 30 } },
+        audio: false,
+      });
     } else {
-      stream = await navigator.mediaDevices.getUserMedia({ video, audio });
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: video
+          ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } }
+          : false,
+        audio,
+      });
     }
 
     this.localStream = stream;
+    this.isScreenShare = screen;
+
+    // Hint the encoder: screen content favours sharpness, camera favours motion.
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.contentHint = screen ? 'detail' : 'motion';
+    }
 
     // Add every track to every peer connection -> triggers renegotiation.
     for (const [, pc] of this.peerConnections) {
       for (const track of stream.getTracks()) {
         pc.addTrack(track, stream);
       }
+      await this.applyBitrateCaps(pc, screen);
     }
 
     // When the user stops a screen share from the browser's own UI, tear down.
-    if (screen) {
-      const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.onended = () => this.stopLocalMedia();
-      }
+    if (screen && videoTrack) {
+      videoTrack.onended = () => this.stopLocalMedia();
     }
 
     if (this.callbacks.onLocalStream) {
       this.callbacks.onLocalStream(stream);
     }
     return stream;
+  }
+
+  // Cap bitrate / framerate so weak uplinks stay smooth instead of stuttering.
+  async applyBitrateCaps(pc, screen) {
+    for (const sender of pc.getSenders()) {
+      if (sender.track?.kind !== 'video') continue;
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) {
+          params.encodings = [{}];
+        }
+        params.encodings[0].maxBitrate = screen ? 2500000 : 1200000; // 2.5 / 1.2 Mbps
+        params.encodings[0].maxFramerate = screen ? 15 : 24;
+        params.degradationPreference = screen ? 'maintain-resolution' : 'maintain-framerate';
+        await sender.setParameters(params);
+      } catch (err) {
+        console.warn('[media] could not apply bitrate caps:', err);
+      }
+    }
   }
 
   stopLocalMedia() {
@@ -349,6 +396,7 @@ export class TransferManager {
       }
     }
     this.localStream = null;
+    this.isScreenShare = false;
     if (this.callbacks.onCallEnded) {
       this.callbacks.onCallEnded();
     }
@@ -523,7 +571,7 @@ export class TransferManager {
     } else {
       this.socket.emit('relay-chunk-meta', {
         targetPeerId,
-        fileMeta,
+        fileMeta: await encryptString(this.cryptoKey, JSON.stringify(fileMeta)),
       });
     }
 
@@ -570,13 +618,13 @@ export class TransferManager {
 
         channel.send(packet.buffer);
       } else {
-        // Fallback relay via Socket.IO
+        // Fallback relay via Socket.IO (E2E-encrypted so the server can't read it)
         this.socket.emit('relay-chunk-data', {
           targetPeerId,
           fileId,
           chunkIndex,
           totalChunks,
-          data: chunk,
+          data: await encryptBytes(this.cryptoKey, chunk),
         });
 
         // Small yield for socket relay flow

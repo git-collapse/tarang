@@ -8,6 +8,7 @@ import QRCodeModal from './components/QRCodeModal';
 import { getDeviceInfo } from './utils/device';
 import { TransferManager } from './utils/transferManager';
 import { createZipFromFiles, triggerDownload } from './utils/zip';
+import { deriveRoomKey, encryptString, decryptString } from './utils/crypto';
 
 export default function App() {
   const [theme, setTheme] = useState(() => {
@@ -16,6 +17,7 @@ export default function App() {
 
   const [deviceInfo, setDeviceInfo] = useState(null);
   const [roomCode, setRoomCode] = useState(null);
+  const [roomPin, setRoomPin] = useState('');
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [peers, setPeers] = useState([]);
@@ -40,6 +42,7 @@ export default function App() {
 
   const transferManagerRef = useRef(null);
   const iceServersRef = useRef(null);
+  const cryptoKeyRef = useRef(null);
 
   // Initialize theme
   useEffect(() => {
@@ -91,6 +94,24 @@ export default function App() {
   useEffect(() => {
     deviceInfoRef.current = deviceInfo;
   }, [deviceInfo]);
+
+  // Derive the end-to-end encryption key from the room code (+ optional PIN).
+  // Stays entirely in the browser; never sent to the server.
+  useEffect(() => {
+    if (!roomCode) {
+      cryptoKeyRef.current = null;
+      return;
+    }
+    let active = true;
+    deriveRoomKey(roomCode, roomPin).then((key) => {
+      if (!active) return;
+      cryptoKeyRef.current = key;
+      transferManagerRef.current?.setCryptoKey(key);
+    });
+    return () => {
+      active = false;
+    };
+  }, [roomCode, roomPin]);
 
   // Initialize Socket.io with robust auto-reconnection and room re-joining
   useEffect(() => {
@@ -205,10 +226,12 @@ export default function App() {
           setReceivedFiles((prev) => [fileItem, ...prev]);
         },
       },
-      { iceServers: iceServersRef.current }
+      { iceServers: iceServersRef.current, cryptoKey: cryptoKeyRef.current }
     );
 
     transferManagerRef.current = manager;
+    // Ensure the manager has the latest derived key (derivation may still be in flight)
+    if (cryptoKeyRef.current) manager.setCryptoKey(cryptoKeyRef.current);
 
     // Socket Room Listeners
     socket.on('room-joined', ({ peers: existingPeers }) => {
@@ -237,12 +260,20 @@ export default function App() {
       }
     });
 
-    socket.on('sync-text', ({ text }) => {
-      setSyncedText(text);
+    socket.on('sync-text', async ({ text }) => {
+      const plain = await decryptString(cryptoKeyRef.current, text);
+      setSyncedText(plain);
     });
 
-    socket.on('receive-message', ({ message }) => {
-      setMessages((prev) => [...prev, { ...message, isMe: false }]);
+    socket.on('receive-message', async ({ message }) => {
+      const json = await decryptString(cryptoKeyRef.current, message);
+      if (!json) return;
+      try {
+        const obj = JSON.parse(json);
+        setMessages((prev) => [...prev, { ...obj, isMe: false }]);
+      } catch {
+        /* wrong key / PIN mismatch — drop */
+      }
     });
 
     return () => {
@@ -256,10 +287,11 @@ export default function App() {
   }, [socket, roomCode]);
 
   // Join Room Action
-  const joinRoom = (code) => {
+  const joinRoom = (code, pin = '') => {
     if (!socket || !code) return;
     const cleanCode = String(code).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     if (!cleanCode) return;
+    setRoomPin(pin || '');
     setRoomCode(cleanCode);
 
     // Clean address bar so refreshing the page starts fresh on Lobby with new code!
@@ -272,11 +304,12 @@ export default function App() {
   };
 
   // Generate 6-digit formatted room code (e.g. 842194)
-  const generateNewRoomCode = () => {
+  const generateNewRoomCode = (pin) => {
+    const effectivePin = typeof pin === 'string' ? pin : roomPin; // ignore event objects
     const part1 = Math.floor(100 + Math.random() * 900);
     const part2 = Math.floor(100 + Math.random() * 900);
     const newCode = `${part1}${part2}`;
-    joinRoom(newCode);
+    joinRoom(newCode, effectivePin);
   };
 
   // Leave Room Action
@@ -286,6 +319,7 @@ export default function App() {
     }
     transferManagerRef.current?.stopLocalMedia();
     setRoomCode(null);
+    setRoomPin('');
     setPeers([]);
     setActiveTransfers([]);
     setReceivedFiles([]);
@@ -373,16 +407,19 @@ export default function App() {
     setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileId));
   };
 
-  // Real-time Text synchronization
-  const handleTextChange = (text) => {
+  // Real-time Text synchronization (payload end-to-end encrypted)
+  const handleTextChange = async (text) => {
     setSyncedText(text);
     if (socket && roomCode) {
-      socket.emit('sync-text', { roomId: roomCode, text });
+      socket.emit('sync-text', {
+        roomId: roomCode,
+        text: await encryptString(cryptoKeyRef.current, text),
+      });
     }
   };
 
-  // Real-time Text Messaging & Snippet sending
-  const handleSendMessage = (text) => {
+  // Real-time Text Messaging & Snippet sending (payload end-to-end encrypted)
+  const handleSendMessage = async (text) => {
     if (!text || !roomCode) return;
     const msgObj = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
@@ -395,9 +432,10 @@ export default function App() {
     setMessages((prev) => [...prev, { ...msgObj, isMe: true }]);
 
     if (socket) {
+      const payload = await encryptString(cryptoKeyRef.current, JSON.stringify(msgObj));
       socket.emit('send-message', {
         roomId: roomCode,
-        message: msgObj,
+        message: payload,
       });
     }
   };
@@ -465,6 +503,7 @@ export default function App() {
             onSendMessage={handleSendMessage}
             isDirectP2P={isDirectP2P}
             connectionMode={connectionMode}
+            isPinProtected={!!roomPin}
             localStream={localStream}
             remoteStreams={remoteStreams}
             micEnabled={micEnabled}

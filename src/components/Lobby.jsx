@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Plus, ArrowRight, ShieldCheck, Zap, FolderUp } from 'lucide-react';
+import { Plus, ArrowRight, ShieldCheck, Zap, FolderUp, Lock } from 'lucide-react';
 
 export default function Lobby({ onJoinRoom, onGenerateCode }) {
   const [inputCode, setInputCode] = useState('');
+  const [pin, setPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
@@ -13,7 +15,7 @@ export default function Lobby({ onJoinRoom, onGenerateCode }) {
       return;
     }
     setError('');
-    onJoinRoom(cleaned);
+    onJoinRoom(cleaned, pin.trim());
   };
 
   const extractRoomCode = (rawText) => {
@@ -64,7 +66,7 @@ export default function Lobby({ onJoinRoom, onGenerateCode }) {
         <div className="space-y-6 my-auto py-5">
           {/* Generate Code Button */}
           <button
-            onClick={onGenerateCode}
+            onClick={() => onGenerateCode(pin.trim())}
             className="w-full h-13 rounded-xl font-medium text-base bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 shadow-sm flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
           >
             <Plus className="w-5 h-5" />
@@ -117,6 +119,33 @@ export default function Lobby({ onJoinRoom, onGenerateCode }) {
             {error && <p className="text-xs text-rose-500 text-center font-medium">{error}</p>}
           </form>
 
+          {/* Optional PIN for extra security (mixed into the encryption key) */}
+          {!showPin ? (
+            <button
+              type="button"
+              onClick={() => setShowPin(true)}
+              className="w-full flex items-center justify-center gap-1.5 text-[11px] font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+            >
+              <Lock className="w-3 h-3" /> Add optional PIN (extra security)
+            </button>
+          ) : (
+            <div className="space-y-1">
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+                <input
+                  type="password"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="Optional PIN — must match on both devices"
+                  className="w-full h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-950/60 pl-9 pr-3 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600 transition-all"
+                />
+              </div>
+              <p className="text-[10px] text-zinc-400 text-center px-1">
+                Encrypts chat, notes & relayed files with a secret only your devices know.
+              </p>
+            </div>
+          )}
+
           {/* Tip Box */}
           <div className="rounded-xl border border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/80 dark:bg-zinc-950/50 p-3 text-center text-xs text-zinc-500 dark:text-zinc-400">
             <span>Tip: Open the same link or enter this code on your phone to connect.</span>
@@ -134,7 +163,7 @@ export default function Lobby({ onJoinRoom, onGenerateCode }) {
           </span>
           <span>•</span>
           <span className="flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5" /> Encrypted
+            <ShieldCheck className="w-3.5 h-3.5" /> End-to-End
           </span>
         </div>
       </div>

@@ -3,7 +3,7 @@ import {
   QrCode, Copy, Check, LogOut, Laptop, Smartphone, UploadCloud,
   File, Folder, Image as ImageIcon, MessageSquare, Download, Archive,
   X, ExternalLink, RefreshCw, Send, ClipboardPaste, FileText, CheckCircle2,
-  Video, VideoOff, Mic, MicOff, ScreenShare, PhoneOff, Zap, Cloud, Loader2
+  Video, VideoOff, Mic, MicOff, ScreenShare, PhoneOff, Zap, Cloud, Loader2, Lock
 } from 'lucide-react';
 import { formatBytes, formatSpeed, formatTimeRemaining } from '../utils/device';
 import { triggerDownload } from '../utils/zip';
@@ -54,6 +54,7 @@ export default function RoomView({
   onSendMessage,
   isDirectP2P,
   connectionMode = 'idle',
+  isPinProtected = false,
   localStream = null,
   remoteStreams = [],
   micEnabled = true,
@@ -280,6 +281,17 @@ export default function RoomView({
               ) : (
                 <><Loader2 className="w-3 h-3 animate-spin" /><span>Connecting</span></>
               )}
+            </div>
+          )}
+
+          {/* PIN-protected indicator */}
+          {isPinProtected && (
+            <div
+              title="This room is PIN-protected — content is encrypted with your secret PIN"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-zinc-100 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60"
+            >
+              <Lock className="w-3 h-3" />
+              <span>PIN</span>
             </div>
           )}
         </div>
