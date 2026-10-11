@@ -8,7 +8,7 @@ import QRCodeModal from './components/QRCodeModal';
 import { getDeviceInfo } from './utils/device';
 import { TransferManager } from './utils/transferManager';
 import { createZipFromFiles, triggerDownload } from './utils/zip';
-import { deriveRoomKey, encryptString, decryptString } from './utils/crypto';
+import { deriveRoomKey, encryptString, decryptString, hashPin } from './utils/crypto';
 
 export default function App() {
   const [theme, setTheme] = useState(() => {
@@ -40,9 +40,14 @@ export default function App() {
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
 
+  // Prompt shown when trying to enter a PIN-locked room
+  const [lockPrompt, setLockPrompt] = useState(null); // { code, reason }
+  const [lockPinInput, setLockPinInput] = useState('');
+
   const transferManagerRef = useRef(null);
   const iceServersRef = useRef(null);
   const cryptoKeyRef = useRef(null);
+  const pinHashRef = useRef('');
 
   // Initialize theme
   useEffect(() => {
@@ -134,8 +139,17 @@ export default function App() {
         newSocket.emit('join-room', {
           roomId: roomCodeRef.current,
           deviceMeta: deviceInfoRef.current,
+          pinHash: pinHashRef.current,
         });
       }
+    });
+
+    // Server refused entry to a locked room — prompt for the PIN.
+    newSocket.on('join-rejected', ({ roomId, reason }) => {
+      setRoomCode(null);
+      setPeers([]);
+      setLockPinInput('');
+      setLockPrompt({ code: roomId, reason });
     });
 
     newSocket.on('disconnect', (reason) => {
@@ -287,19 +301,24 @@ export default function App() {
   }, [socket, roomCode]);
 
   // Join Room Action
-  const joinRoom = (code, pin = '') => {
+  const joinRoom = async (code, pin = '') => {
     if (!socket || !code) return;
     const cleanCode = String(code).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     if (!cleanCode) return;
-    setRoomPin(pin || '');
+    const cleanPin = (pin || '').trim();
+    setRoomPin(cleanPin);
     setRoomCode(cleanCode);
 
     // Clean address bar so refreshing the page starts fresh on Lobby with new code!
     window.history.replaceState({}, '', window.location.pathname);
 
+    const ph = await hashPin(cleanPin);
+    pinHashRef.current = ph;
+
     socket.emit('join-room', {
       roomId: cleanCode,
       deviceMeta: deviceInfo,
+      pinHash: ph,
     });
   };
 
@@ -386,10 +405,16 @@ export default function App() {
     setCameraEnabled(next);
   };
 
-  // Set / change / clear the room PIN from inside the room. Re-derives the
-  // encryption key live (the key-derivation effect depends on roomPin).
-  const handleSetPin = (pin) => {
-    setRoomPin((pin || '').trim());
+  // Set / change / clear the room PIN from inside the room. Locks the room on
+  // the server (gating new joiners) and re-derives the encryption key live.
+  const handleSetPin = async (pin) => {
+    const cleanPin = (pin || '').trim();
+    setRoomPin(cleanPin);
+    const ph = await hashPin(cleanPin);
+    pinHashRef.current = ph;
+    if (socket && roomCode) {
+      socket.emit('set-room-lock', { roomId: roomCode, pinHash: ph });
+    }
   };
 
   // Send Files to all connected peers
@@ -533,6 +558,62 @@ export default function App() {
         roomCode={roomCode}
         joinUrl={joinUrl}
       />
+
+      {/* Locked-room PIN prompt */}
+      {lockPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const code = lockPrompt.code;
+              setLockPrompt(null);
+              joinRoom(code, lockPinInput);
+            }}
+            className="w-full max-w-sm rounded-2xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white dark:bg-zinc-900 shadow-xl p-6 space-y-4 animate-in zoom-in-95"
+          >
+            <div className="text-center space-y-1">
+              <div className="text-3xl">🔒</div>
+              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+                Room {lockPrompt.code} is locked
+              </h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {lockPrompt.reason === 'wrong-pin'
+                  ? 'Incorrect PIN. Please try again.'
+                  : 'Enter the PIN set by the room creator to join.'}
+              </p>
+            </div>
+
+            <input
+              autoFocus
+              type="password"
+              value={lockPinInput}
+              onChange={(e) => setLockPinInput(e.target.value)}
+              placeholder="Enter room PIN"
+              className="w-full h-11 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3.5 text-sm text-center text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10 focus:border-zinc-400 dark:focus:border-zinc-600"
+            />
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLockPrompt(null);
+                  setLockPinInput('');
+                }}
+                className="flex-1 h-10 rounded-xl text-xs font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!lockPinInput.trim()}
+                className="flex-1 h-10 rounded-xl text-xs font-medium bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-90 disabled:opacity-40 transition-opacity"
+              >
+                Join Room
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="w-full py-4 text-center text-xs text-zinc-400 dark:text-zinc-600 z-10">

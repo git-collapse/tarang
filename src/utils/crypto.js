@@ -15,8 +15,15 @@ const dec = new TextDecoder();
 const SALT = enc.encode('tarang-e2e-v1');
 const IV_LENGTH = 12;
 
-export async function deriveRoomKey(roomCode, pin = '') {
-  if (!roomCode || !globalThis.crypto?.subtle) return null;
+// One-way hash of the room PIN, sent to the server as an access token so the
+// server can gate joins WITHOUT ever learning the actual PIN.
+export async function hashPin(pin) {
+  if (!pin || !globalThis.crypto?.subtle) return '';
+  const buf = await crypto.subtle.digest('SHA-256', enc.encode(`tarang-pin::${pin}`));
+  return bufToB64(buf);
+}
+
+export async function deriveRoomKey(roomCode, pin = '') {  if (!roomCode || !globalThis.crypto?.subtle) return null;
   const material = await crypto.subtle.importKey(
     'raw',
     enc.encode(`${roomCode}::${pin || ''}`),

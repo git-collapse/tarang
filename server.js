@@ -90,16 +90,43 @@ const normalizeRoomId = (id) => (id ? String(id).replace(/[^A-Za-z0-9]/g, '').to
 
 // Rooms data structure: roomId -> Map(socketId -> peerMeta)
 const rooms = new Map();
+// Room access locks: roomId -> pinHash (SHA-256 of the PIN; server never sees the raw PIN)
+const roomLocks = new Map();
 
 io.on('connection', (socket) => {
   let currentRoom = null;
   let userMeta = null;
 
-  socket.on('join-room', ({ roomId, deviceMeta }) => {
+  socket.on('join-room', ({ roomId, deviceMeta, pinHash }) => {
     if (!roomId) return;
-    
-    currentRoom = normalizeRoomId(roomId);
-    if (!currentRoom) return;
+
+    const normalized = normalizeRoomId(roomId);
+    if (!normalized) return;
+
+    const existingPeersMap = rooms.get(normalized);
+    const roomHasMembers = existingPeersMap && existingPeersMap.size > 0;
+    const lock = roomLocks.get(normalized);
+
+    // Access gate: a locked room requires the matching PIN hash to enter.
+    if (roomHasMembers && lock) {
+      if (!pinHash) {
+        socket.emit('join-rejected', { roomId: normalized, reason: 'pin-required' });
+        return;
+      }
+      if (pinHash !== lock) {
+        socket.emit('join-rejected', { roomId: normalized, reason: 'wrong-pin' });
+        return;
+      }
+    } else if (!roomHasMembers) {
+      // First member creates the room and sets (or clears) its lock.
+      if (pinHash) {
+        roomLocks.set(normalized, pinHash);
+      } else {
+        roomLocks.delete(normalized);
+      }
+    }
+
+    currentRoom = normalized;
 
     userMeta = {
       id: socket.id,
@@ -114,13 +141,14 @@ io.on('connection', (socket) => {
     }
 
     const roomPeers = rooms.get(currentRoom);
-    
+
     // Send existing peers in room to the newly joined peer
     const existingPeers = Array.from(roomPeers.values());
     socket.emit('room-joined', {
       roomId: currentRoom,
       yourId: socket.id,
       peers: existingPeers,
+      locked: roomLocks.has(currentRoom),
     });
 
     // Add current user to room
@@ -132,6 +160,19 @@ io.on('connection', (socket) => {
     });
 
     console.log(`[Socket] ${socket.id} (${userMeta?.deviceName || 'Unknown'}) joined room: ${currentRoom} (Total peers: ${roomPeers.size})`);
+  });
+
+  // Set / change / clear a room's access PIN (any member may lock the room).
+  socket.on('set-room-lock', ({ roomId, pinHash }) => {
+    const targetRoom = normalizeRoomId(roomId) || currentRoom;
+    if (!targetRoom) return;
+    if (pinHash) {
+      roomLocks.set(targetRoom, pinHash);
+    } else {
+      roomLocks.delete(targetRoom);
+    }
+    io.to(targetRoom).emit('room-lock-changed', { locked: !!pinHash });
+    console.log(`[Socket] Room ${targetRoom} lock ${pinHash ? 'set' : 'cleared'}`);
   });
 
   // WebRTC Signaling: offer, answer, ice-candidate
@@ -235,6 +276,7 @@ io.on('connection', (socket) => {
 
       if (roomPeers.size === 0) {
         rooms.delete(currentRoom);
+        roomLocks.delete(currentRoom);
       }
     }
   };
