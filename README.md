@@ -22,10 +22,31 @@ Built with **React 19**, **Tailwind CSS v4**, **WebRTC DataChannels**, and **Soc
   - One-click **"Download All as ZIP"** bundle.
 - 🖼️ **Photo Gallery & Lightbox**:
   - High-res thumbnail previews and full-screen lightbox viewer.
+- 🎥 **Live Video & Screen Share (WebRTC)**:
+  - Start a camera call or share your screen with the paired device over the same P2P connection, with mute / camera toggles.
+- 📶 **Connection Transparency**:
+  - A live badge shows whether you're on a **Direct P2P** link (fastest) or the **Relay** fallback.
 - 📱 **QR Code Mobile Pairing**:
   - Scan with your phone's camera to pair in seconds without typing codes.
 - 🎨 **Minimalist Design**:
   - Clean monochrome typography, dark/light theme, and distraction-free interface.
+
+---
+
+## 🔌 WebRTC / TURN configuration
+
+The client fetches ICE servers from `GET /api/ice`. By default it serves Google STUN
+plus free public TURN relays — enough for demos. For reliable direct connections in
+production (especially on mobile / symmetric-NAT networks), set your own TURN
+credentials as environment variables on the host (e.g. Render → Environment):
+
+```
+TURN_URL=turn:your-turn-host:3478,turns:your-turn-host:5349
+TURN_USERNAME=your-username
+TURN_CREDENTIAL=your-credential
+```
+
+Free managed TURN is available from Metered, Twilio, or self-hosted coturn.
 
 ---
 

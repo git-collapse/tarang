@@ -1,11 +1,40 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  QrCode, Copy, Check, LogOut, Laptop, Smartphone, UploadCloud, 
-  File, Folder, Image as ImageIcon, MessageSquare, Download, Archive, 
-  X, ExternalLink, RefreshCw, Send, ClipboardPaste, FileText, CheckCircle2
+import {
+  QrCode, Copy, Check, LogOut, Laptop, Smartphone, UploadCloud,
+  File, Folder, Image as ImageIcon, MessageSquare, Download, Archive,
+  X, ExternalLink, RefreshCw, Send, ClipboardPaste, FileText, CheckCircle2,
+  Video, VideoOff, Mic, MicOff, ScreenShare, PhoneOff, Zap, Cloud, Loader2
 } from 'lucide-react';
 import { formatBytes, formatSpeed, formatTimeRemaining } from '../utils/device';
 import { triggerDownload } from '../utils/zip';
+
+// Binds a MediaStream to a <video> element (streams can't be passed via src)
+function VideoTile({ stream, muted = false, mirror = false, label }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return (
+    <div className="relative rounded-xl overflow-hidden bg-zinc-900 border border-zinc-200/60 dark:border-zinc-700/60 aspect-video">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        className={`w-full h-full object-cover ${mirror ? 'scale-x-[-1]' : ''}`}
+      />
+      {label && (
+        <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-black/60 text-white">
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export default function RoomView({
   roomCode,
@@ -24,6 +53,17 @@ export default function RoomView({
   messages = [],
   onSendMessage,
   isDirectP2P,
+  connectionMode = 'idle',
+  localStream = null,
+  remoteStreams = [],
+  micEnabled = true,
+  cameraEnabled = true,
+  isScreenSharing = false,
+  onStartCamera,
+  onStartScreenShare,
+  onEndCall,
+  onToggleMic,
+  onToggleCamera,
 }) {
   const [activeTab, setActiveTab] = useState('text'); // default to 'text' for proper texting or 'files'
   const [copiedCode, setCopiedCode] = useState(false);
@@ -214,6 +254,34 @@ export default function RoomView({
               {peers.length > 0 ? `${peers.length} Device${peers.length > 1 ? 's' : ''} Connected` : 'Waiting for device...'}
             </span>
           </div>
+
+          {/* Connection mode badge: direct P2P vs relay fallback */}
+          {peers.length > 0 && (
+            <div
+              title={
+                connectionMode === 'direct'
+                  ? 'Encrypted direct peer-to-peer connection (fastest, nothing passes through the server)'
+                  : connectionMode === 'relay'
+                  ? 'Direct connection blocked by your network — transferring via the secure server relay'
+                  : 'Establishing the best connection…'
+              }
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
+                connectionMode === 'direct'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200/60 dark:border-emerald-900/50'
+                  : connectionMode === 'relay'
+                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200/60 dark:border-amber-900/50'
+                  : 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-500 border-zinc-200/60 dark:border-zinc-700/60'
+              }`}
+            >
+              {connectionMode === 'direct' ? (
+                <><Zap className="w-3 h-3" /><span>Direct P2P</span></>
+              ) : connectionMode === 'relay' ? (
+                <><Cloud className="w-3 h-3" /><span>Relay</span></>
+              ) : (
+                <><Loader2 className="w-3 h-3 animate-spin" /><span>Connecting</span></>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -322,6 +390,21 @@ export default function RoomView({
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-zinc-700 text-zinc-200 dark:bg-zinc-300 dark:text-zinc-800">
               {receivedImages.length}
             </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('live')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            activeTab === 'live'
+              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-sm'
+              : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+          }`}
+        >
+          <Video className="w-3.5 h-3.5" />
+          <span>Live</span>
+          {(localStream || remoteStreams.length > 0) && (
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
           )}
         </button>
       </div>
@@ -713,6 +796,102 @@ export default function RoomView({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 4: LIVE CALL / SCREEN SHARE */}
+      {activeTab === 'live' && (
+        <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800/60 pb-3">
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+              Live Video & Screen Share
+            </h4>
+            {(localStream || remoteStreams.length > 0) && (
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-rose-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" /> Live
+              </span>
+            )}
+          </div>
+
+          {/* Video grid */}
+          {localStream || remoteStreams.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {remoteStreams.map((r) => (
+                <VideoTile key={r.peerId} stream={r.stream} label="Peer" />
+              ))}
+              {localStream && (
+                <VideoTile
+                  stream={localStream}
+                  muted
+                  mirror={!isScreenSharing}
+                  label={isScreenSharing ? 'Your screen' : 'You'}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center text-zinc-400 text-xs space-y-4">
+              <div className="flex flex-col items-center gap-1">
+                <Video className="w-7 h-7 opacity-40" />
+                <p className="font-medium text-zinc-500 dark:text-zinc-400">No live session yet</p>
+                <p>Start your camera or share your screen with the connected device.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onStartCamera}
+                  className="px-3.5 py-2 rounded-xl text-xs font-medium bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 transition-colors flex items-center gap-1.5"
+                >
+                  <Video className="w-3.5 h-3.5" />
+                  <span>Start Camera</span>
+                </button>
+                <button
+                  onClick={onStartScreenShare}
+                  className="px-3.5 py-2 rounded-xl text-xs font-medium bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 border border-zinc-200/60 dark:border-zinc-700/60 transition-colors flex items-center gap-1.5"
+                >
+                  <ScreenShare className="w-3.5 h-3.5" />
+                  <span>Share Screen</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Call controls */}
+          {localStream && (
+            <div className="flex items-center justify-center gap-2 pt-1">
+              {!isScreenSharing && (
+                <>
+                  <button
+                    onClick={onToggleMic}
+                    title={micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+                    className={`p-2.5 rounded-full border transition-colors ${
+                      micEnabled
+                        ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border-zinc-200/60 dark:border-zinc-700/60'
+                        : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200/60 dark:border-rose-900/50'
+                    }`}
+                  >
+                    {micEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={onToggleCamera}
+                    title={cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+                    className={`p-2.5 rounded-full border transition-colors ${
+                      cameraEnabled
+                        ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border-zinc-200/60 dark:border-zinc-700/60'
+                        : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200/60 dark:border-rose-900/50'
+                    }`}
+                  >
+                    {cameraEnabled ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+                  </button>
+                </>
+              )}
+              <button
+                onClick={onEndCall}
+                title="End session"
+                className="p-2.5 rounded-full bg-rose-600 text-white hover:bg-rose-700 transition-colors"
+              >
+                <PhoneOff className="w-4 h-4" />
+              </button>
             </div>
           )}
         </div>

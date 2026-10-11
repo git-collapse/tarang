@@ -6,27 +6,39 @@
 const CHUNK_SIZE = 64 * 1024; // 64 KB chunks
 const BUFFER_THRESHOLD = 512 * 1024; // 512 KB buffer threshold for flow control
 
-const ICE_SERVERS = [
+// STUN finds your public address; TURN relays media when direct P2P is blocked
+// (symmetric NAT, strict firewalls). The TURN entries below are the free public
+// Open Relay Project servers — fine for demos. For production reliability set
+// TURN_URL / TURN_USERNAME / TURN_CREDENTIAL on the server and the client will
+// fetch them from /api/ice (see App.jsx) and pass them in here.
+export const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun3.l.google.com:19302' },
-  { urls: 'stun:stun4.l.google.com:19302' },
-  { urls: 'stun:global.stun.twilio.com:3478' },
+  { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+  { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
 ];
 
 export class TransferManager {
-  constructor(socket, localPeerId, callbacks = {}) {
+  constructor(socket, localPeerId, callbacks = {}, options = {}) {
     this.socket = socket;
     this.localPeerId = localPeerId;
     this.callbacks = callbacks;
+    this.iceServers = options.iceServers?.length ? options.iceServers : DEFAULT_ICE_SERVERS;
 
     // peerId -> RTCPeerConnection
     this.peerConnections = new Map();
     // peerId -> RTCDataChannel
     this.dataChannels = new Map();
-    // peerId -> Set of queued ICE candidates before remote description is set
+    // peerId -> array of queued ICE candidates before remote description is set
     this.queuedCandidates = new Map();
+    // Perfect-negotiation bookkeeping (supports mid-call renegotiation for media)
+    this.makingOffer = new Map();   // peerId -> bool
+    this.politeFlags = new Map();   // peerId -> bool
+
+    // Shared local media stream (camera / screen share) added to every peer
+    this.localStream = null;
+    this.lastMode = null;
 
     // fileId -> { meta, receivedChunks, totalReceivedBytes, startTime, lastTime, lastBytes }
     this.incomingTransfers = new Map();
@@ -63,8 +75,12 @@ export class TransferManager {
       return this.peerConnections.get(targetPeerId);
     }
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     this.peerConnections.set(targetPeerId, pc);
+    this.makingOffer.set(targetPeerId, false);
+    // The side that did NOT initiate is "polite": on a signaling collision it
+    // yields, the impolite side wins. This keeps renegotiation glare-safe.
+    this.politeFlags.set(targetPeerId, !isInitiator);
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -75,30 +91,57 @@ export class TransferManager {
       }
     };
 
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') {
-        if (this.callbacks.onPeerConnected) {
-          this.callbacks.onPeerConnected(targetPeerId);
-        }
-      } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-        this.cleanupPeer(targetPeerId);
+    // Fires on initial connect AND whenever tracks are added/removed (media).
+    pc.onnegotiationneeded = async () => {
+      try {
+        this.makingOffer.set(targetPeerId, true);
+        await pc.setLocalDescription();
+        this.socket.emit('signal', {
+          targetPeerId,
+          data: { type: 'description', description: pc.localDescription },
+        });
+      } catch (err) {
+        console.error('[P2P] negotiation error:', err);
+      } finally {
+        this.makingOffer.set(targetPeerId, false);
       }
     };
 
+    // Remote camera / screen-share stream arrives here
+    pc.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (stream && this.callbacks.onRemoteStream) {
+        this.callbacks.onRemoteStream(targetPeerId, stream);
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState;
+      if (state === 'connected') {
+        if (this.callbacks.onPeerConnected) {
+          this.callbacks.onPeerConnected(targetPeerId);
+        }
+      } else if (['disconnected', 'failed', 'closed'].includes(state)) {
+        if (this.callbacks.onPeerDisconnected) {
+          this.callbacks.onPeerDisconnected(targetPeerId);
+        }
+        this.cleanupPeer(targetPeerId);
+      }
+      this.updateMode();
+    };
+
+    // If a call is already in progress, share our media with the new peer too.
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) {
+        pc.addTrack(track, this.localStream);
+      }
+    }
+
     if (isInitiator) {
+      // Creating the channel triggers onnegotiationneeded, which sends the offer.
       const channel = pc.createDataChannel('tarang-data', { ordered: true });
       this.setupDataChannel(channel, targetPeerId);
       this.dataChannels.set(targetPeerId, channel);
-
-      pc.createOffer()
-        .then((offer) => pc.setLocalDescription(offer))
-        .then(() => {
-          this.socket.emit('signal', {
-            targetPeerId,
-            data: { type: 'offer', sdp: pc.localDescription },
-          });
-        })
-        .catch((err) => console.error('Error creating offer:', err));
     } else {
       pc.ondatachannel = (event) => {
         const channel = event.channel;
@@ -118,10 +161,12 @@ export class TransferManager {
       if (this.callbacks.onChannelOpen) {
         this.callbacks.onChannelOpen(peerId);
       }
+      this.updateMode();
     };
 
     channel.onclose = () => {
       console.log(`[P2P] DataChannel closed with peer: ${peerId}`);
+      this.updateMode();
     };
 
     channel.onerror = (err) => {
@@ -135,50 +180,60 @@ export class TransferManager {
 
   async handleSignal(fromPeerId, data) {
     let pc = this.peerConnections.get(fromPeerId);
+    if (!pc) {
+      // We're being contacted first, so we're the receiver (polite side).
+      pc = this.createPeerConnection(fromPeerId, false);
+    }
+    const polite = this.politeFlags.get(fromPeerId);
 
-    if (data.type === 'offer') {
-      if (!pc) {
-        pc = this.createPeerConnection(fromPeerId, false);
-      }
-      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    try {
+      if (data.type === 'description') {
+        const description = data.description;
+        const offerCollision =
+          description.type === 'offer' &&
+          (this.makingOffer.get(fromPeerId) || pc.signalingState !== 'stable');
 
-      // Process any queued ICE candidates
-      const queued = this.queuedCandidates.get(fromPeerId) || [];
-      for (const candidate of queued) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      }
-      this.queuedCandidates.delete(fromPeerId);
+        // Impolite peer ignores a colliding offer; polite peer rolls back and accepts.
+        if (!polite && offerCollision) {
+          return;
+        }
 
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+        await pc.setRemoteDescription(description);
 
-      this.socket.emit('signal', {
-        targetPeerId: fromPeerId,
-        data: { type: 'answer', sdp: pc.localDescription },
-      });
-    } else if (data.type === 'answer') {
-      if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
-
+        // Flush any ICE candidates that arrived before the remote description.
         const queued = this.queuedCandidates.get(fromPeerId) || [];
         for (const candidate of queued) {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) {
+            console.warn('Error adding queued ICE candidate:', e);
+          }
         }
         this.queuedCandidates.delete(fromPeerId);
-      }
-    } else if (data.type === 'candidate') {
-      if (pc && pc.remoteDescription) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) {
-          console.warn('Error adding ICE candidate:', e);
+
+        if (description.type === 'offer') {
+          await pc.setLocalDescription();
+          this.socket.emit('signal', {
+            targetPeerId: fromPeerId,
+            data: { type: 'description', description: pc.localDescription },
+          });
         }
-      } else {
-        if (!this.queuedCandidates.has(fromPeerId)) {
-          this.queuedCandidates.set(fromPeerId, []);
+      } else if (data.type === 'candidate') {
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          } catch (e) {
+            console.warn('Error adding ICE candidate:', e);
+          }
+        } else {
+          if (!this.queuedCandidates.has(fromPeerId)) {
+            this.queuedCandidates.set(fromPeerId, []);
+          }
+          this.queuedCandidates.get(fromPeerId).push(data.candidate);
         }
-        this.queuedCandidates.get(fromPeerId).push(data.candidate);
       }
+    } catch (err) {
+      console.error('[P2P] handleSignal error:', err);
     }
   }
 
@@ -199,6 +254,112 @@ export class TransferManager {
       } catch {}
       this.peerConnections.delete(peerId);
     }
+    this.queuedCandidates.delete(peerId);
+    this.makingOffer.delete(peerId);
+    this.politeFlags.delete(peerId);
+    this.updateMode();
+  }
+
+  // --- Connection mode (direct P2P vs relay fallback) for the UI badge ---
+
+  updateMode() {
+    let anyOpen = false;
+    for (const [, channel] of this.dataChannels) {
+      if (channel.readyState === 'open') {
+        anyOpen = true;
+        break;
+      }
+    }
+
+    let anyFailed = false;
+    for (const [, pc] of this.peerConnections) {
+      if (['failed', 'disconnected'].includes(pc.connectionState)) {
+        anyFailed = true;
+        break;
+      }
+    }
+
+    // Direct if a DataChannel is open; relay if the connection died but peers
+    // remain (files still flow through the Socket.IO relay); else connecting.
+    let mode;
+    if (anyOpen) {
+      mode = 'direct';
+    } else if (this.peerConnections.size === 0) {
+      mode = 'idle';
+    } else if (anyFailed) {
+      mode = 'relay';
+    } else {
+      mode = 'connecting';
+    }
+
+    if (mode !== this.lastMode) {
+      this.lastMode = mode;
+      if (this.callbacks.onConnectionModeChange) {
+        this.callbacks.onConnectionModeChange(mode);
+      }
+    }
+  }
+
+  // --- Live media: camera / screen share over the same peer connections ---
+
+  async startLocalMedia({ screen = false, video = true, audio = true } = {}) {
+    let stream;
+    if (screen) {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    } else {
+      stream = await navigator.mediaDevices.getUserMedia({ video, audio });
+    }
+
+    this.localStream = stream;
+
+    // Add every track to every peer connection -> triggers renegotiation.
+    for (const [, pc] of this.peerConnections) {
+      for (const track of stream.getTracks()) {
+        pc.addTrack(track, stream);
+      }
+    }
+
+    // When the user stops a screen share from the browser's own UI, tear down.
+    if (screen) {
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.onended = () => this.stopLocalMedia();
+      }
+    }
+
+    if (this.callbacks.onLocalStream) {
+      this.callbacks.onLocalStream(stream);
+    }
+    return stream;
+  }
+
+  stopLocalMedia() {
+    if (this.localStream) {
+      for (const track of this.localStream.getTracks()) {
+        track.stop();
+      }
+    }
+    for (const [, pc] of this.peerConnections) {
+      for (const sender of pc.getSenders()) {
+        if (sender.track) {
+          try {
+            pc.removeTrack(sender); // triggers renegotiation on the far side
+          } catch {}
+        }
+      }
+    }
+    this.localStream = null;
+    if (this.callbacks.onCallEnded) {
+      this.callbacks.onCallEnded();
+    }
+  }
+
+  setAudioEnabled(enabled) {
+    this.localStream?.getAudioTracks().forEach((t) => (t.enabled = enabled));
+  }
+
+  setVideoEnabled(enabled) {
+    this.localStream?.getVideoTracks().forEach((t) => (t.enabled = enabled));
   }
 
   // --- Incoming Message & Chunk Handling ---
@@ -482,6 +643,7 @@ export class TransferManager {
   }
 
   destroy() {
+    this.stopLocalMedia();
     for (const [peerId] of this.peerConnections) {
       this.cleanupPeer(peerId);
     }

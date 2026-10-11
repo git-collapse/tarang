@@ -43,6 +43,33 @@ function getLocalIpAddresses() {
   return addresses;
 }
 
+// Endpoint to provide WebRTC ICE servers (STUN + TURN).
+// Set TURN_URL (comma-separated), TURN_USERNAME, TURN_CREDENTIAL as env vars on
+// the host for a reliable private TURN server; otherwise free public relays are
+// used so direct P2P still works behind strict NAT / firewalls.
+app.get('/api/ice', (req, res) => {
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
+
+  if (process.env.TURN_URL) {
+    iceServers.push({
+      urls: process.env.TURN_URL.split(',').map((u) => u.trim()),
+      username: process.env.TURN_USERNAME,
+      credential: process.env.TURN_CREDENTIAL,
+    });
+  } else {
+    iceServers.push(
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    );
+  }
+
+  res.json({ iceServers });
+});
+
 // Endpoint to provide local network info
 app.get('/api/info', (req, res) => {
   const ips = getLocalIpAddresses();

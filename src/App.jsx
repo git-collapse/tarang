@@ -28,7 +28,18 @@ export default function App() {
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   const [networkInfo, setNetworkInfo] = useState({ primaryIp: window.location.hostname, port: window.location.port || 3000 });
 
+  // Connection mode for the live badge: 'idle' | 'connecting' | 'direct' | 'relay'
+  const [connectionMode, setConnectionMode] = useState('idle');
+
+  // Live call (camera / screen share) state
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStreams, setRemoteStreams] = useState([]); // [{ peerId, stream }]
+  const [micEnabled, setMicEnabled] = useState(true);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+
   const transferManagerRef = useRef(null);
+  const iceServersRef = useRef(null);
 
   // Initialize theme
   useEffect(() => {
@@ -45,7 +56,7 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  // Fetch network info
+  // Fetch network info + ICE servers (STUN/TURN) for WebRTC
   useEffect(() => {
     const info = getDeviceInfo();
     setDeviceInfo(info);
@@ -55,6 +66,15 @@ export default function App() {
       .then((data) => {
         if (data?.primaryIp) {
           setNetworkInfo(data);
+        }
+      })
+      .catch(() => {});
+
+    fetch('/api/ice')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.iceServers?.length) {
+          iceServersRef.current = data.iceServers;
         }
       })
       .catch(() => {});
@@ -138,33 +158,55 @@ export default function App() {
     if (!socket || !roomCode) return;
 
     // Initialize Transfer Manager
-    const manager = new TransferManager(socket, socket.id, {
-      onPeerConnected: (peerId) => {
-        console.log('P2P connected with peer:', peerId);
-        setIsDirectP2P(true);
+    const manager = new TransferManager(
+      socket,
+      socket.id,
+      {
+        onPeerConnected: (peerId) => {
+          console.log('P2P connected with peer:', peerId);
+          setIsDirectP2P(true);
+        },
+        onPeerDisconnected: (peerId) => {
+          setRemoteStreams((prev) => prev.filter((r) => r.peerId !== peerId));
+        },
+        onChannelOpen: () => {
+          setIsDirectP2P(true);
+        },
+        onConnectionModeChange: (mode) => {
+          setConnectionMode(mode);
+          setIsDirectP2P(mode === 'direct');
+        },
+        onRemoteStream: (peerId, stream) => {
+          setRemoteStreams((prev) => [
+            ...prev.filter((r) => r.peerId !== peerId),
+            { peerId, stream },
+          ]);
+        },
+        onCallEnded: () => {
+          setLocalStream(null);
+          setIsScreenSharing(false);
+        },
+        onTransferStart: (item) => {
+          setActiveTransfers((prev) => [
+            ...prev.filter((t) => t.fileId !== item.fileId),
+            { ...item, progress: 0, speed: 0, bytesTransferred: 0, totalBytes: item.size, eta: 0 },
+          ]);
+        },
+        onTransferProgress: (progressData) => {
+          setActiveTransfers((prev) =>
+            prev.map((t) => (t.fileId === progressData.fileId ? { ...t, ...progressData } : t))
+          );
+        },
+        onTransferComplete: ({ fileId }) => {
+          setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileId));
+        },
+        onFileReceived: (fileItem) => {
+          setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileItem.fileId));
+          setReceivedFiles((prev) => [fileItem, ...prev]);
+        },
       },
-      onChannelOpen: () => {
-        setIsDirectP2P(true);
-      },
-      onTransferStart: (item) => {
-        setActiveTransfers((prev) => [
-          ...prev.filter((t) => t.fileId !== item.fileId),
-          { ...item, progress: 0, speed: 0, bytesTransferred: 0, totalBytes: item.size, eta: 0 },
-        ]);
-      },
-      onTransferProgress: (progressData) => {
-        setActiveTransfers((prev) =>
-          prev.map((t) => (t.fileId === progressData.fileId ? { ...t, ...progressData } : t))
-        );
-      },
-      onTransferComplete: ({ fileId, name, isSending }) => {
-        setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileId));
-      },
-      onFileReceived: (fileItem) => {
-        setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileItem.fileId));
-        setReceivedFiles((prev) => [fileItem, ...prev]);
-      },
-    });
+      { iceServers: iceServersRef.current }
+    );
 
     transferManagerRef.current = manager;
 
@@ -188,6 +230,7 @@ export default function App() {
 
     socket.on('peer-left', ({ peerId }) => {
       setPeers((prev) => prev.filter((p) => p.id !== peerId));
+      setRemoteStreams((prev) => prev.filter((r) => r.peerId !== peerId));
       manager.cleanupPeer(peerId);
       if (peers.length <= 1) {
         setIsDirectP2P(false);
@@ -241,6 +284,7 @@ export default function App() {
     if (socket && roomCode) {
       socket.emit('leave-room');
     }
+    transferManagerRef.current?.stopLocalMedia();
     setRoomCode(null);
     setPeers([]);
     setActiveTransfers([]);
@@ -248,8 +292,64 @@ export default function App() {
     setSyncedText('');
     setMessages([]);
     setIsDirectP2P(false);
+    setConnectionMode('idle');
+    setLocalStream(null);
+    setRemoteStreams([]);
+    setIsScreenSharing(false);
 
     window.history.replaceState({}, '', window.location.pathname);
+  };
+
+  // --- Live Call: camera / screen share ---
+  const handleStartCamera = async () => {
+    if (!transferManagerRef.current) return;
+    if (peers.length === 0) {
+      alert('No other device is in the room yet. Connect your other device first.');
+      return;
+    }
+    try {
+      const stream = await transferManagerRef.current.startLocalMedia({ screen: false });
+      setLocalStream(stream);
+      setIsScreenSharing(false);
+      setMicEnabled(true);
+      setCameraEnabled(true);
+    } catch (err) {
+      console.error('Camera error:', err);
+      alert('Could not access camera/microphone. Check browser permissions.');
+    }
+  };
+
+  const handleStartScreenShare = async () => {
+    if (!transferManagerRef.current) return;
+    if (peers.length === 0) {
+      alert('No other device is in the room yet. Connect your other device first.');
+      return;
+    }
+    try {
+      const stream = await transferManagerRef.current.startLocalMedia({ screen: true });
+      setLocalStream(stream);
+      setIsScreenSharing(true);
+    } catch (err) {
+      console.error('Screen share error:', err);
+    }
+  };
+
+  const handleEndCall = () => {
+    transferManagerRef.current?.stopLocalMedia();
+    setLocalStream(null);
+    setIsScreenSharing(false);
+  };
+
+  const handleToggleMic = () => {
+    const next = !micEnabled;
+    transferManagerRef.current?.setAudioEnabled(next);
+    setMicEnabled(next);
+  };
+
+  const handleToggleCamera = () => {
+    const next = !cameraEnabled;
+    transferManagerRef.current?.setVideoEnabled(next);
+    setCameraEnabled(next);
   };
 
   // Send Files to all connected peers
@@ -364,6 +464,17 @@ export default function App() {
             messages={messages}
             onSendMessage={handleSendMessage}
             isDirectP2P={isDirectP2P}
+            connectionMode={connectionMode}
+            localStream={localStream}
+            remoteStreams={remoteStreams}
+            micEnabled={micEnabled}
+            cameraEnabled={cameraEnabled}
+            isScreenSharing={isScreenSharing}
+            onStartCamera={handleStartCamera}
+            onStartScreenShare={handleStartScreenShare}
+            onEndCall={handleEndCall}
+            onToggleMic={handleToggleMic}
+            onToggleCamera={handleToggleCamera}
           />
         )}
       </main>
