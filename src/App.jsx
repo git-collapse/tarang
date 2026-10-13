@@ -44,6 +44,17 @@ export default function App() {
   const [lockPrompt, setLockPrompt] = useState(null); // { code, reason }
   const [lockPinInput, setLockPinInput] = useState('');
 
+  // Auto-download files directly into the system like PairDrop
+  const [autoDownload, setAutoDownload] = useState(() => {
+    const saved = localStorage.getItem('tarang_auto_download');
+    return saved !== null ? saved === 'true' : true; // Default to true (auto download ON)
+  });
+  const autoDownloadRef = useRef(autoDownload);
+  useEffect(() => {
+    autoDownloadRef.current = autoDownload;
+    localStorage.setItem('tarang_auto_download', String(autoDownload));
+  }, [autoDownload]);
+
   const transferManagerRef = useRef(null);
   const iceServersRef = useRef(null);
   const cryptoKeyRef = useRef(null);
@@ -238,6 +249,15 @@ export default function App() {
         onFileReceived: (fileItem) => {
           setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileItem.fileId));
           setReceivedFiles((prev) => [fileItem, ...prev]);
+
+          // Automatically download directly into device / downloads folder (PairDrop behavior)
+          if (autoDownloadRef.current && fileItem?.blob) {
+            try {
+              triggerDownload(fileItem.blob, fileItem.name);
+            } catch (err) {
+              console.warn('Auto-download error:', err);
+            }
+          }
         },
       },
       { iceServers: iceServersRef.current, cryptoKey: cryptoKeyRef.current }
@@ -547,6 +567,8 @@ export default function App() {
             onEndCall={handleEndCall}
             onToggleMic={handleToggleMic}
             onToggleCamera={handleToggleCamera}
+            autoDownload={autoDownload}
+            onToggleAutoDownload={() => setAutoDownload((prev) => !prev)}
           />
         )}
       </main>

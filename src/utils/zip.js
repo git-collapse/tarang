@@ -46,3 +46,30 @@ export function triggerDownload(blobOrUrl, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 15000);
   }
 }
+
+/** True when the browser supports picking a directory to auto-save into (Chromium). */
+export function supportsDirectorySave() {
+  return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
+}
+
+/**
+ * Writes a Blob into a chosen directory handle, creating any subfolders from a
+ * relative path (e.g. "photos/2024/pic.jpg") so folder structure is preserved.
+ */
+export async function writeFileToDirectory(dirHandle, relativePath, blob) {
+  const parts = String(relativePath || 'file')
+    .split('/')
+    .filter((p) => p && p !== '.' && p !== '..');
+  const fileName = parts.pop() || 'file';
+
+  let dir = dirHandle;
+  for (const part of parts) {
+    dir = await dir.getDirectoryHandle(part, { create: true });
+  }
+
+  const fileHandle = await dir.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+

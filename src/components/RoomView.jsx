@@ -67,6 +67,8 @@ export default function RoomView({
   onEndCall,
   onToggleMic,
   onToggleCamera,
+  autoDownload = true,
+  onToggleAutoDownload,
 }) {
   const [activeTab, setActiveTab] = useState('text'); // default to 'text' for proper texting or 'files'
   const [copiedCode, setCopiedCode] = useState(false);
@@ -753,10 +755,27 @@ export default function RoomView({
 
           {/* Received Files List */}
           <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                Received Files ({receivedFiles.length})
-              </h4>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Received Files ({receivedFiles.length})
+                </h4>
+                {onToggleAutoDownload && (
+                  <button
+                    type="button"
+                    onClick={onToggleAutoDownload}
+                    title="When enabled, incoming files automatically save straight into your device downloads folder (like PairDrop)"
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
+                      autoDownload
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200/60 dark:border-emerald-900/50'
+                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border-zinc-200 dark:border-zinc-700'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${autoDownload ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-400'}`} />
+                    <span>Auto-Save {autoDownload ? 'ON' : 'OFF'}</span>
+                  </button>
+                )}
+              </div>
               {receivedFiles.length > 1 && (
                 <button
                   onClick={onDownloadAllZip}
