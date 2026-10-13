@@ -208,6 +208,16 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Explicit live media stop (camera / screen share ended)
+  socket.on('media-stop', ({ roomId }) => {
+    const targetRoom = normalizeRoomId(roomId) || currentRoom;
+    if (targetRoom) {
+      socket.to(targetRoom).emit('media-stop', {
+        fromPeerId: socket.id,
+      });
+    }
+  });
+
   // Fallback WebSocket Relay Transfer for files/chunks (guarantees transfer even when WebRTC NAT fails)
   socket.on('relay-chunk-meta', ({ targetPeerId, fileMeta }) => {
     if (targetPeerId) {

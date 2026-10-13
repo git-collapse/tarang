@@ -352,12 +352,17 @@ export default function App() {
       }
     });
 
+    socket.on('media-stop', ({ fromPeerId }) => {
+      setRemoteStreams((prev) => prev.filter((r) => r.peerId !== fromPeerId));
+    });
+
     return () => {
       socket.off('room-joined');
       socket.off('peer-joined');
       socket.off('peer-left');
       socket.off('sync-text');
       socket.off('receive-message');
+      socket.off('media-stop');
       manager.destroy();
     };
   }, [socket, roomCode]);
@@ -451,6 +456,9 @@ export default function App() {
 
   const handleEndCall = () => {
     transferManagerRef.current?.stopLocalMedia();
+    if (socket && roomCode) {
+      socket.emit('media-stop', { roomId: roomCode });
+    }
     setLocalStream(null);
     setIsScreenSharing(false);
   };
