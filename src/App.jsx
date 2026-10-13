@@ -253,6 +253,9 @@ export default function App() {
             { peerId, stream },
           ]);
         },
+        onRemoteStreamEnded: (peerId) => {
+          setRemoteStreams((prev) => prev.filter((r) => r.peerId !== peerId));
+        },
         onCallEnded: () => {
           setLocalStream(null);
           setIsScreenSharing(false);

@@ -131,6 +131,13 @@ export class TransferManager {
       if (stream && this.callbacks.onRemoteStream) {
         this.callbacks.onRemoteStream(targetPeerId, stream);
       }
+      if (event.track) {
+        event.track.onended = () => {
+          if (this.callbacks.onRemoteStreamEnded) {
+            this.callbacks.onRemoteStreamEnded(targetPeerId);
+          }
+        };
+      }
     };
 
     pc.onconnectionstatechange = () => {
@@ -252,6 +259,11 @@ export class TransferManager {
             this.queuedCandidates.set(fromPeerId, []);
           }
           this.queuedCandidates.get(fromPeerId).push(data.candidate);
+        }
+      } else if (data.type === 'media-stop') {
+        // Explicit teardown of remote media stream on receiver
+        if (this.callbacks.onRemoteStreamEnded) {
+          this.callbacks.onRemoteStreamEnded(fromPeerId);
         }
       }
     } catch (err) {
@@ -411,7 +423,7 @@ export class TransferManager {
         track.stop();
       }
     }
-    for (const [, pc] of this.peerConnections) {
+    for (const [peerId, pc] of this.peerConnections) {
       for (const sender of pc.getSenders()) {
         if (sender.track) {
           try {
@@ -419,6 +431,11 @@ export class TransferManager {
           } catch {}
         }
       }
+      // Send explicit stop event to peer so receiver clears the video tile immediately
+      this.socket.emit('signal', {
+        targetPeerId: peerId,
+        data: { type: 'media-stop' },
+      });
     }
     this.localStream = null;
     this.isScreenShare = false;
