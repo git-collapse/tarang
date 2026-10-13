@@ -5,8 +5,12 @@
 
 import { encryptString, decryptString, encryptBytes, decryptBytes } from './crypto';
 
-const CHUNK_SIZE = 64 * 1024; // 64 KB chunks
-const BUFFER_THRESHOLD = 512 * 1024; // 512 KB buffer threshold for flow control
+// High-performance transfer constants
+// 64KB is optimal for WebRTC DataChannel (RFC 8831 / Chromium SCTP max message size without fragmentation)
+const P2P_CHUNK_SIZE = 64 * 1024;      // 64 KB for direct WebRTC P2P
+const RELAY_CHUNK_SIZE = 256 * 1024;   // 256 KB for WebSocket relay (4x fewer roundtrips)
+const BUFFER_THRESHOLD = 2 * 1024 * 1024; // 2MB pipeline buffer (keeps WebRTC pipeline saturated at multi-MB/s)
+const BUFFER_LOW_THRESHOLD = 512 * 1024;  // 512KB wake-up threshold
 
 // STUN finds your public address; TURN relays media when direct P2P is blocked
 // (symmetric NAT, strict firewalls). The TURN entries below are the free public
@@ -170,6 +174,9 @@ export class TransferManager {
 
   setupDataChannel(channel, peerId) {
     channel.binaryType = 'arraybuffer';
+    try {
+      channel.bufferedAmountLowThreshold = BUFFER_LOW_THRESHOLD;
+    } catch {}
 
     channel.onopen = () => {
       console.log(`[P2P] WebRTC DataChannel open with peer: ${peerId}`);
@@ -536,7 +543,14 @@ export class TransferManager {
 
   async sendFile(file, targetPeerId, relativePath = '') {
     const fileId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    // Determine whether to use direct WebRTC DataChannel or WebSocket relay
+    const channel = this.dataChannels.get(targetPeerId);
+    const useP2P = channel && channel.readyState === 'open';
+
+    // 64KB for direct P2P (optimal for WebRTC), 256KB for WebSocket relay (low roundtrip overhead)
+    const chunkSize = useP2P ? P2P_CHUNK_SIZE : RELAY_CHUNK_SIZE;
+    const totalChunks = Math.ceil(file.size / chunkSize);
 
     const fileMeta = {
       id: fileId,
@@ -545,14 +559,10 @@ export class TransferManager {
       mimeType: file.type || 'application/octet-stream',
       relativePath: relativePath || file.webkitRelativePath || file.name,
       totalChunks,
-      chunkSize: CHUNK_SIZE,
+      chunkSize,
     };
 
     this.outgoingTransfers.set(fileId, { isCancelled: false });
-
-    // Determine whether to use direct WebRTC DataChannel or WebSocket relay
-    const channel = this.dataChannels.get(targetPeerId);
-    const useP2P = channel && channel.readyState === 'open';
 
     if (this.callbacks.onTransferStart) {
       this.callbacks.onTransferStart({
@@ -575,7 +585,7 @@ export class TransferManager {
       });
     }
 
-    // 2. Stream chunks with flow control
+    // 2. Stream chunks with zero-copy Uint8Array views and continuous flow control
     let offset = 0;
     let chunkIndex = 0;
     let bytesSent = 0;
@@ -584,6 +594,9 @@ export class TransferManager {
     let currentSpeed = 0;
 
     const fileBuffer = await file.arrayBuffer();
+    const encoder = new TextEncoder();
+    const idBytes = encoder.encode(fileId);
+    const headerLen = 1 + idBytes.length + 4;
 
     while (offset < file.size) {
       if (this.outgoingTransfers.get(fileId)?.isCancelled) {
@@ -591,22 +604,19 @@ export class TransferManager {
         return;
       }
 
-      const chunk = fileBuffer.slice(offset, offset + CHUNK_SIZE);
+      const chunkLength = Math.min(chunkSize, file.size - offset);
 
       if (useP2P) {
-        // Build binary buffer with header [idLen (1B), idStr (idLen B), chunkIndex (4B), chunkData]
-        const encoder = new TextEncoder();
-        const idBytes = encoder.encode(fileId);
-        const headerLen = 1 + idBytes.length + 4;
-        const packet = new Uint8Array(headerLen + chunk.byteLength);
+        // High-speed binary packet construction
+        const packet = new Uint8Array(headerLen + chunkLength);
         const view = new DataView(packet.buffer);
 
         view.setUint8(0, idBytes.length);
         packet.set(idBytes, 1);
         view.setUint32(1 + idBytes.length, chunkIndex);
-        packet.set(new Uint8Array(chunk), headerLen);
+        packet.set(new Uint8Array(fileBuffer, offset, chunkLength), headerLen);
 
-        // WebRTC flow control to prevent buffer overflow
+        // Continuous high-throughput flow control: wait only when pipeline is full
         if (channel.bufferedAmount > BUFFER_THRESHOLD) {
           await new Promise((resolve) => {
             channel.onbufferedamountlow = () => {
@@ -618,7 +628,8 @@ export class TransferManager {
 
         channel.send(packet.buffer);
       } else {
-        // Fallback relay via Socket.IO (E2E-encrypted so the server can't read it)
+        // High-speed WebSocket relay: 256KB chunks without blocking delays
+        const chunk = fileBuffer.slice(offset, offset + chunkLength);
         this.socket.emit('relay-chunk-data', {
           targetPeerId,
           fileId,
@@ -627,19 +638,19 @@ export class TransferManager {
           data: await encryptBytes(this.cryptoKey, chunk),
         });
 
-        // Small yield for socket relay flow
-        if (chunkIndex % 8 === 0) {
-          await new Promise((r) => setTimeout(r, 10));
+        // Yield only briefly every 16 chunks (4MB transferred)
+        if (chunkIndex % 16 === 0) {
+          await new Promise((r) => setTimeout(r, 0));
         }
       }
 
-      offset += CHUNK_SIZE;
+      offset += chunkLength;
       chunkIndex += 1;
-      bytesSent += chunk.byteLength;
+      bytesSent += chunkLength;
 
       const now = Date.now();
       const timeDiff = (now - lastTime) / 1000;
-      if (timeDiff >= 0.5 || bytesSent === file.size) {
+      if (timeDiff >= 0.3 || bytesSent === file.size) {
         const bytesDiff = bytesSent - lastBytes;
         currentSpeed = bytesDiff / (timeDiff || 0.001);
         lastTime = now;
