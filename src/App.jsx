@@ -7,7 +7,7 @@ import QRCodeModal from './components/QRCodeModal';
 
 import { getDeviceInfo } from './utils/device';
 import { TransferManager } from './utils/transferManager';
-import { createZipFromFiles, triggerDownload } from './utils/zip';
+import { createZipFromFiles, triggerDownload, supportsDirectorySave, writeFileToDirectory } from './utils/zip';
 import { deriveRoomKey, encryptString, decryptString, hashPin } from './utils/crypto';
 
 export default function App() {
@@ -54,6 +54,31 @@ export default function App() {
     autoDownloadRef.current = autoDownload;
     localStorage.setItem('tarang_auto_download', String(autoDownload));
   }, [autoDownload]);
+
+  // Selected folder for silent direct file-saving (Native File System Access API)
+  const [saveDirectoryName, setSaveDirectoryName] = useState('');
+  const saveDirectoryHandleRef = useRef(null);
+
+  const handleSelectSaveDirectory = async () => {
+    if (!supportsDirectorySave()) {
+      alert('Direct folder save is supported on Chrome, Edge, and Opera desktop browsers. Files will download to your default Downloads folder instead.');
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      saveDirectoryHandleRef.current = handle;
+      setSaveDirectoryName(handle.name || 'Selected Folder');
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.warn('Directory pick error:', err);
+      }
+    }
+  };
+
+  const handleClearSaveDirectory = () => {
+    saveDirectoryHandleRef.current = null;
+    setSaveDirectoryName('');
+  };
 
   const transferManagerRef = useRef(null);
   const iceServersRef = useRef(null);
@@ -246,12 +271,26 @@ export default function App() {
         onTransferComplete: ({ fileId }) => {
           setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileId));
         },
-        onFileReceived: (fileItem) => {
+        onFileReceived: async (fileItem) => {
           setActiveTransfers((prev) => prev.filter((t) => t.fileId !== fileItem.fileId));
           setReceivedFiles((prev) => [fileItem, ...prev]);
 
-          // Automatically download directly into device / downloads folder (PairDrop behavior)
           if (autoDownloadRef.current && fileItem?.blob) {
+            // If user picked a destination folder on their system, write directly & silently into it (no download bars!)
+            if (saveDirectoryHandleRef.current) {
+              try {
+                await writeFileToDirectory(
+                  saveDirectoryHandleRef.current,
+                  fileItem.relativePath || fileItem.name,
+                  fileItem.blob
+                );
+                return;
+              } catch (err) {
+                console.warn('Direct folder write error, falling back to browser download:', err);
+              }
+            }
+
+            // Standard browser direct download fallback
             try {
               triggerDownload(fileItem.blob, fileItem.name);
             } catch (err) {
@@ -569,6 +608,9 @@ export default function App() {
             onToggleCamera={handleToggleCamera}
             autoDownload={autoDownload}
             onToggleAutoDownload={() => setAutoDownload((prev) => !prev)}
+            saveDirectoryName={saveDirectoryName}
+            onSelectSaveDirectory={handleSelectSaveDirectory}
+            onClearSaveDirectory={handleClearSaveDirectory}
           />
         )}
       </main>

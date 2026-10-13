@@ -69,6 +69,9 @@ export default function RoomView({
   onToggleCamera,
   autoDownload = true,
   onToggleAutoDownload,
+  saveDirectoryName = '',
+  onSelectSaveDirectory,
+  onClearSaveDirectory,
 }) {
   const [activeTab, setActiveTab] = useState('text'); // default to 'text' for proper texting or 'files'
   const [copiedCode, setCopiedCode] = useState(false);
@@ -756,7 +759,7 @@ export default function RoomView({
           {/* Received Files List */}
           <div className="bg-white/90 dark:bg-zinc-900/90 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
                 <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                   Received Files ({receivedFiles.length})
                 </h4>
@@ -764,7 +767,7 @@ export default function RoomView({
                   <button
                     type="button"
                     onClick={onToggleAutoDownload}
-                    title="When enabled, incoming files automatically save straight into your device downloads folder (like PairDrop)"
+                    title="When enabled, incoming files automatically save straight into your system without download dialogs"
                     className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
                       autoDownload
                         ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200/60 dark:border-emerald-900/50'
@@ -774,6 +777,35 @@ export default function RoomView({
                     <span className={`w-1.5 h-1.5 rounded-full ${autoDownload ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-400'}`} />
                     <span>Auto-Save {autoDownload ? 'ON' : 'OFF'}</span>
                   </button>
+                )}
+                {/* Pick destination folder button (File System Access API) */}
+                {onSelectSaveDirectory && (
+                  <div className="inline-flex items-center gap-1 text-[10px]">
+                    {saveDirectoryName ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-900/50">
+                        <Folder className="w-2.5 h-2.5" />
+                        <span className="max-w-[120px] truncate">{saveDirectoryName}</span>
+                        <button
+                          type="button"
+                          onClick={onClearSaveDirectory}
+                          className="hover:text-rose-500 ml-0.5"
+                          title="Reset to default Downloads"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={onSelectSaveDirectory}
+                        title="Pick a folder on your system so received files go directly into it with 0 clicks and no download prompt"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 border border-zinc-200/60 dark:border-zinc-700/60 transition-colors"
+                      >
+                        <Folder className="w-2.5 h-2.5" />
+                        <span>Choose Save Folder</span>
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               {receivedFiles.length > 1 && (
