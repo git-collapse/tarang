@@ -128,6 +128,19 @@ export class TransferManager {
     // Remote camera / screen-share stream arrives here
     pc.ontrack = (event) => {
       const [stream] = event.streams;
+
+      // Force zero receiver jitter buffer delay for ultra-low latency scrolling
+      try {
+        if (event.receiver) {
+          if ('playoutDelayHint' in event.receiver) {
+            event.receiver.playoutDelayHint = 0;
+          }
+          if ('jitterBufferTarget' in event.receiver) {
+            event.receiver.jitterBufferTarget = 0;
+          }
+        }
+      } catch {}
+
       if (stream && this.callbacks.onRemoteStream) {
         this.callbacks.onRemoteStream(targetPeerId, stream);
       }
@@ -371,10 +384,10 @@ export class TransferManager {
     this.localStream = stream;
     this.isScreenShare = screen;
 
-    // Hint the WebRTC video encoder
+    // Hint the WebRTC video encoder: 'motion' prioritizes instant scroll responsiveness without stutter
     const videoTrack = stream.getVideoTracks()[0];
     if (videoTrack) {
-      videoTrack.contentHint = screen ? 'detail' : 'motion';
+      videoTrack.contentHint = 'motion';
     }
 
     // Add every track to every peer connection -> triggers renegotiation.
@@ -405,10 +418,10 @@ export class TransferManager {
         if (!params.encodings || params.encodings.length === 0) {
           params.encodings = [{}];
         }
-        // Screen: 1.8 Mbps / 30 fps (crisp without choking network); Camera: 1.0 Mbps / 30 fps
-        params.encodings[0].maxBitrate = screen ? 1800000 : 1000000;
-        params.encodings[0].maxFramerate = 30;
-        // Maintain framerate ensures live video never stutters or buffers
+        // Screen: 2.0 Mbps / 60 fps for silky smooth PDF scrolling; Camera: 1.0 Mbps / 30 fps
+        params.encodings[0].maxBitrate = screen ? 2000000 : 1000000;
+        params.encodings[0].maxFramerate = screen ? 60 : 30;
+        // Maintain framerate ensures live scrolling never stutters or lags behind
         params.degradationPreference = 'maintain-framerate';
         await sender.setParameters(params);
       } catch (err) {
