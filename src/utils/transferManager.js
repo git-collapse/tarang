@@ -327,23 +327,39 @@ export class TransferManager {
   async startLocalMedia({ screen = false, video = true, audio = true } = {}) {
     let stream;
     if (screen) {
+      // Screen share tuned for ultra-low latency: 1080p max, 30fps smooth motion, no high latency buffering
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 15, max: 30 } },
+        video: {
+          width: { max: 1920 },
+          height: { max: 1080 },
+          frameRate: { ideal: 30, max: 30 },
+        },
         audio: false,
       });
     } else {
+      // Camera tuned for crisp, instant realtime communication: 720p 30fps with hardware echo cancellation
       stream = await navigator.mediaDevices.getUserMedia({
         video: video
-          ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } }
+          ? {
+              width: { ideal: 1280, max: 1280 },
+              height: { ideal: 720, max: 720 },
+              frameRate: { ideal: 30, max: 30 },
+            }
           : false,
-        audio,
+        audio: audio
+          ? {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            }
+          : false,
       });
     }
 
     this.localStream = stream;
     this.isScreenShare = screen;
 
-    // Hint the encoder: screen content favours sharpness, camera favours motion.
+    // Hint the WebRTC video encoder
     const videoTrack = stream.getVideoTracks()[0];
     if (videoTrack) {
       videoTrack.contentHint = screen ? 'detail' : 'motion';
@@ -368,7 +384,7 @@ export class TransferManager {
     return stream;
   }
 
-  // Cap bitrate / framerate so weak uplinks stay smooth instead of stuttering.
+  // Cap bitrate / framerate so uplinks stay buttery smooth with minimum latency
   async applyBitrateCaps(pc, screen) {
     for (const sender of pc.getSenders()) {
       if (sender.track?.kind !== 'video') continue;
@@ -377,9 +393,11 @@ export class TransferManager {
         if (!params.encodings || params.encodings.length === 0) {
           params.encodings = [{}];
         }
-        params.encodings[0].maxBitrate = screen ? 2500000 : 1200000; // 2.5 / 1.2 Mbps
-        params.encodings[0].maxFramerate = screen ? 15 : 24;
-        params.degradationPreference = screen ? 'maintain-resolution' : 'maintain-framerate';
+        // Screen: 1.8 Mbps / 30 fps (crisp without choking network); Camera: 1.0 Mbps / 30 fps
+        params.encodings[0].maxBitrate = screen ? 1800000 : 1000000;
+        params.encodings[0].maxFramerate = 30;
+        // Maintain framerate ensures live video never stutters or buffers
+        params.degradationPreference = 'maintain-framerate';
         await sender.setParameters(params);
       } catch (err) {
         console.warn('[media] could not apply bitrate caps:', err);
