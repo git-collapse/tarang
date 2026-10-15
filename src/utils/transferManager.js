@@ -393,7 +393,9 @@ export class TransferManager {
     // Add every track to every peer connection -> triggers renegotiation.
     for (const [, pc] of this.peerConnections) {
       for (const track of stream.getTracks()) {
-        pc.addTrack(track, stream);
+        const sender = pc.addTrack(track, stream);
+        // Prioritize ultra-low latency hardware codecs (VP8 or H264) over heavy AV1/VP9
+        this.prioritizeFastCodec(pc);
       }
       await this.applyBitrateCaps(pc, screen);
     }
@@ -409,6 +411,35 @@ export class TransferManager {
     return stream;
   }
 
+  // Prioritize hardware-accelerated low-latency video codecs (VP8, H264)
+  prioritizeFastCodec(pc) {
+    try {
+      const transceivers = pc.getTransceivers ? pc.getTransceivers() : [];
+      for (const t of transceivers) {
+        if (t.sender && t.sender.track && t.sender.track.kind === 'video' && typeof RTCRtpSender.getCapabilities === 'function') {
+          const capabilities = RTCRtpSender.getCapabilities('video');
+          if (capabilities && capabilities.codecs) {
+            // Sort codecs so VP8 and H264 (baseline) are tried first for instant encoding
+            const preferredCodecs = [...capabilities.codecs].sort((a, b) => {
+              const aMime = a.mimeType.toLowerCase();
+              const bMime = b.mimeType.toLowerCase();
+              if (aMime.includes('vp8')) return -1;
+              if (bMime.includes('vp8')) return 1;
+              if (aMime.includes('h264')) return -1;
+              if (bMime.includes('h264')) return 1;
+              return 0;
+            });
+            if (typeof t.setCodecPreferences === 'function') {
+              t.setCodecPreferences(preferredCodecs);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[media] could not set codec preferences:', err);
+    }
+  }
+
   // Cap bitrate / framerate so uplinks stay buttery smooth with minimum latency
   async applyBitrateCaps(pc, screen) {
     for (const sender of pc.getSenders()) {
@@ -418,9 +449,12 @@ export class TransferManager {
         if (!params.encodings || params.encodings.length === 0) {
           params.encodings = [{}];
         }
-        // Screen: 2.0 Mbps / 60 fps for silky smooth PDF scrolling; Camera: 1.0 Mbps / 30 fps
-        params.encodings[0].maxBitrate = screen ? 2000000 : 1000000;
-        params.encodings[0].maxFramerate = screen ? 60 : 30;
+        // Adaptive bitrate: 1.5 Mbps for screen (avoids Wi-Fi/4G/5G bufferbloat queueing)
+        // 30-60 fps dynamic with priority: 'high'
+        params.encodings[0].maxBitrate = screen ? 1500000 : 900000;
+        params.encodings[0].maxFramerate = 30;
+        params.encodings[0].networkPriority = 'high';
+        params.encodings[0].priority = 'high';
         // Maintain framerate ensures live scrolling never stutters or lags behind
         params.degradationPreference = 'maintain-framerate';
         await sender.setParameters(params);
